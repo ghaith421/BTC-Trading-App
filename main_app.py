@@ -60,11 +60,13 @@ if df is not None and not df.empty:
     last_price = df['Close'].iloc[-1]
     last_time = df.index[-1]
     
+    # ⬇️⬇️⬇️ VOICI LA PARTIE CORRIGÉE (col1, col2, col3, col4) ⬇️⬇️⬇️
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("💰 Prix", f"${last_price:,.2f}")
     col2.metric("📊 RSI", f"{df['RSI'].iloc[-1]:.2f}")
     col3.metric("📈 Volatilité", f"{df['Volatility'].iloc[-1]:.4f}")
     col4.metric("⏰ MAJ", last_time.strftime("%H:%M:%S"))
+    # ⬆️⬆️⬆️ FIN DE LA PARTIE CORRIGÉE ⬆️⬆️⬆️
 
     supports, resistances = detect_supports_resistances(df)
     
