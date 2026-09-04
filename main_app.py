@@ -3,19 +3,22 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
+
 from plotly.subplots import make_subplots
 from scipy.signal import argrelextrema
+
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
+
 import joblib
 
 
 # ============================================================
-# CONFIGURATION STREAMLIT
+# CONFIGURATION
 # ============================================================
 
 st.set_page_config(
-    page_title="BTC Algo Trading",
+    page_title="BTC Algo Trading V2.1",
     page_icon="🤖",
     layout="wide"
 )
@@ -24,10 +27,21 @@ st.title("🤖 Trading BTC - Prédiction 1h")
 
 
 # ============================================================
-# FUSEAU HORAIRE
+# FUSEAU HORAIRE TUNISIE
 # ============================================================
 
 TUNIS_TZ = ZoneInfo("Africa/Tunis")
+
+
+# ============================================================
+# PARAMÈTRES
+# ============================================================
+
+REFRESH_SECONDS = 60
+
+TIMEFRAME = "5m"
+
+PERIOD = "7d"
 
 
 # ============================================================
@@ -39,15 +53,21 @@ def load_model():
 
     try:
 
-        model = joblib.load("btc_multioutput_rf.pkl")
-        scaler = joblib.load("scaler.pkl")
+        model = joblib.load(
+            "btc_multioutput_rf.pkl"
+        )
+
+        scaler = joblib.load(
+            "scaler.pkl"
+        )
 
         return model, scaler
 
     except Exception as e:
 
         st.error(
-            "❌ Impossible de charger le modèle ou le scaler."
+            "❌ Impossible de charger "
+            "le modèle ou le scaler."
         )
 
         st.exception(e)
@@ -59,6 +79,7 @@ model, scaler = load_model()
 
 
 if model is None or scaler is None:
+
     st.stop()
 
 
@@ -72,20 +93,20 @@ def fetch_data():
     try:
 
         # ----------------------------------------------------
-        # Télécharger les données BTC
+        # Téléchargement
         # ----------------------------------------------------
 
         df = yf.download(
             "BTC-USD",
-            period="7d",
-            interval="5m",
+            period=PERIOD,
+            interval=TIMEFRAME,
             progress=False,
             auto_adjust=False
         )
 
 
         # ----------------------------------------------------
-        # Vérifier les données
+        # Vérification
         # ----------------------------------------------------
 
         if df is None or df.empty:
@@ -94,60 +115,86 @@ def fetch_data():
 
 
         # ====================================================
-        # CORRECTION YFINANCE MULTIINDEX
+        # CORRECTION MULTIINDEX YFINANCE
         # ====================================================
 
-        if isinstance(df.columns, pd.MultiIndex):
+        if isinstance(
+            df.columns,
+            pd.MultiIndex
+        ):
 
-            df.columns = df.columns.get_level_values(0)
+            df.columns = (
+                df.columns
+                .get_level_values(0)
+            )
 
 
         # ====================================================
-        # VÉRIFICATION DES COLONNES
+        # COLONNES NÉCESSAIRES
         # ====================================================
 
         required_columns = [
+
             "Open",
             "High",
             "Low",
             "Close",
             "Volume"
+
         ]
 
+
         missing_columns = [
+
             col
             for col in required_columns
             if col not in df.columns
+
         ]
+
 
         if missing_columns:
 
             raise ValueError(
-                f"Colonnes manquantes : {missing_columns}"
+                f"Colonnes manquantes : "
+                f"{missing_columns}"
             )
 
 
         # ====================================================
-        # CORRECTION DU FUSEAU HORAIRE
+        # CONVERSION NUMÉRIQUE
+        # ====================================================
+
+        for col in required_columns:
+
+            df[col] = pd.to_numeric(
+                df[col],
+                errors="coerce"
+            )
+
+
+        # ====================================================
+        # FUSEAU HORAIRE
         # ====================================================
 
         if df.index.tz is not None:
 
-            df.index = df.index.tz_convert(
-                "Africa/Tunis"
+            df.index = (
+                df.index
+                .tz_convert("Africa/Tunis")
             )
 
         else:
 
-            df.index = df.index.tz_localize(
-                "UTC"
-            ).tz_convert(
-                "Africa/Tunis"
+            df.index = (
+                df.index
+                .tz_localize("UTC")
+                .tz_convert("Africa/Tunis")
             )
 
 
         # ====================================================
-        # SUPPRIMER LES DOUBLONS
+        # NETTOYAGE
         # ====================================================
 
         df = df[
@@ -155,11 +202,6 @@ def fetch_data():
                 keep="first"
             )
         ]
-
-
-        # ====================================================
-        # TRIER PAR DATE
-        # ====================================================
 
         df = df.sort_index()
 
@@ -180,32 +222,41 @@ def fetch_data():
 
         delta = df["Close"].diff()
 
+
         gain = (
             delta
             .where(delta > 0, 0)
-            .rolling(window=14)
+            .rolling(
+                window=14
+            )
             .mean()
         )
+
 
         loss = (
             -delta
             .where(delta < 0, 0)
-            .rolling(window=14)
+            .rolling(
+                window=14
+            )
             .mean()
         )
 
+
         rs = gain / loss
+
 
         df["RSI"] = (
             100
             - (
-                100 / (1 + rs)
+                100
+                / (1 + rs)
             )
         )
 
 
         # ====================================================
-        # MOYENNES MOBILES
+        # SMA
         # ====================================================
 
         df["SMA_5"] = (
@@ -214,11 +265,13 @@ def fetch_data():
             .mean()
         )
 
+
         df["SMA_20"] = (
             df["Close"]
             .rolling(20)
             .mean()
         )
+
 
         df["SMA_50"] = (
             df["Close"]
@@ -269,7 +322,7 @@ def fetch_data():
 
 
         # ====================================================
-        # HIGH / LOW
+        # HIGH / LOW RATIO
         # ====================================================
 
         df["High_low_ratio"] = (
@@ -279,10 +332,12 @@ def fetch_data():
 
 
         # ====================================================
-        # SUPPRIMER LES NaN
+        # SUPPRESSION DES NAN
         # ====================================================
 
-        df.dropna(inplace=True)
+        df.dropna(
+            inplace=True
+        )
 
 
         # ====================================================
@@ -316,7 +371,7 @@ def fetch_data():
     except Exception as e:
 
         st.error(
-            "❌ Erreur pendant la récupération "
+            "❌ Erreur lors de la récupération "
             "des données BTC."
         )
 
@@ -337,31 +392,50 @@ def detect_supports_resistances(
     try:
 
         local_max_idx = argrelextrema(
+
             df["High"].values,
+
             np.greater,
+
             order=order
+
         )[0]
 
+
         local_min_idx = argrelextrema(
+
             df["Low"].values,
+
             np.less,
+
             order=order
+
         )[0]
 
 
         resistances = (
+
             df.iloc[local_max_idx]["High"]
+
             .tail(5)
+
             .astype(float)
+
             .tolist()
+
         )
 
 
         supports = (
+
             df.iloc[local_min_idx]["Low"]
+
             .tail(5)
+
             .astype(float)
+
             .tolist()
+
         )
 
 
@@ -374,7 +448,7 @@ def detect_supports_resistances(
 
 
 # ============================================================
-# RÉCUPÉRER LES DONNÉES
+# RÉCUPÉRATION DES DONNÉES
 # ============================================================
 
 df, features = fetch_data()
@@ -388,32 +462,122 @@ if df is not None and not df.empty:
 
 
     # ========================================================
-    # DERNIÈRE DONNÉE
+    # TEMPS
+    # ========================================================
+
+    current_time = datetime.now(
+        TUNIS_TZ
+    )
+
+
+    last_time = df.index[-1]
+
+
+    # ========================================================
+    # PRIX ACTUEL
     # ========================================================
 
     last_price = float(
         df["Close"].iloc[-1]
     )
 
-    last_time = df.index[-1]
+
+    # ========================================================
+    # VARIATION 5 MIN
+    # ========================================================
+
+    if len(df) >= 2:
+
+        price_5m = float(
+            df["Close"].iloc[-2]
+        )
+
+        change_5m = (
+            (last_price - price_5m)
+            / price_5m
+            * 100
+        )
+
+    else:
+
+        change_5m = 0
 
 
     # ========================================================
-    # HEURE ACTUELLE EN TUNISIE
+    # VARIATION 1 HEURE
+    # 12 bougies de 5 minutes
     # ========================================================
 
-    current_time_tunis = datetime.now(
-        TUNIS_TZ
-    )
+    if len(df) >= 13:
+
+        price_1h = float(
+            df["Close"].iloc[-13]
+        )
+
+        change_1h = (
+            (last_price - price_1h)
+            / price_1h
+            * 100
+        )
+
+    else:
+
+        change_1h = 0
 
 
     # ========================================================
-    # INDICATEURS
+    # VARIATION 24 HEURES
+    # 288 bougies de 5 minutes
+    # ========================================================
+
+    if len(df) >= 289:
+
+        price_24h = float(
+            df["Close"].iloc[-289]
+        )
+
+        change_24h = (
+            (last_price - price_24h)
+            / price_24h
+            * 100
+        )
+
+    else:
+
+        change_24h = 0
+
+
+    # ========================================================
+    # VOLUME 24H
+    # ========================================================
+
+    if len(df) >= 288:
+
+        volume_24h = float(
+            df["Volume"]
+            .iloc[-288:]
+            .sum()
+        )
+
+    else:
+
+        volume_24h = float(
+            df["Volume"].sum()
+        )
+
+
+    # ========================================================
+    # RSI
     # ========================================================
 
     last_rsi = float(
         df["RSI"].iloc[-1]
     )
+
+
+    # ========================================================
+    # VOLATILITÉ
+    # ========================================================
 
     last_volatility = float(
         df["Volatility"].iloc[-1]
@@ -421,56 +585,206 @@ if df is not None and not df.empty:
 
 
     # ========================================================
-    # DASHBOARD
+    # AFFICHAGE DE L'ÉTAT
     # ========================================================
 
-    col1, col2, col3, col4 = st.columns(4)
+    st.success(
+        "🟢 Données BTC disponibles"
+    )
 
 
-    # Prix
+    st.caption(
+        "🕐 Heure actuelle Tunisie : "
+        + current_time.strftime(
+            "%d/%m/%Y %H:%M:%S"
+        )
+    )
+
+
+    st.caption(
+        "📡 Dernière bougie utilisée : "
+        + last_time.strftime(
+            "%d/%m/%Y %H:%M:%S"
+        )
+    )
+
+
+    # ========================================================
+    # DASHBOARD PRINCIPAL
+    # ========================================================
+
+    st.subheader(
+        "📊 Marché BTC"
+    )
+
+
+    col1, col2, col3, col4 = (
+        st.columns(4)
+    )
+
+
+    # --------------------------------------------------------
+    # PRIX
+    # --------------------------------------------------------
+
     col1.metric(
-        "💰 Prix",
-        f"${last_price:,.2f}"
+
+        "💰 Prix BTC",
+
+        f"${last_price:,.2f}",
+
+        f"{change_5m:+.2f}% / 5m"
+
+    )
+
+
+    # --------------------------------------------------------
+    # VARIATION 1H
+    # --------------------------------------------------------
+
+    col2.metric(
+
+        "📈 Variation 1h",
+
+        f"{change_1h:+.2f}%",
+
+        f"${last_price - price_1h:,.2f}"
+        if len(df) >= 13
+        else None
+
+    )
+
+
+    # --------------------------------------------------------
+    # VARIATION 24H
+    # --------------------------------------------------------
+
+    col3.metric(
+
+        "📅 Variation 24h",
+
+        f"{change_24h:+.2f}%",
+
+        f"${last_price - price_24h:,.2f}"
+        if len(df) >= 289
+        else None
+
+    )
+
+
+    # --------------------------------------------------------
+    # VOLUME
+    # --------------------------------------------------------
+
+    if volume_24h >= 1_000_000_000:
+
+        volume_display = (
+            f"${volume_24h / 1_000_000_000:.2f} Md"
+        )
+
+    elif volume_24h >= 1_000_000:
+
+        volume_display = (
+            f"${volume_24h / 1_000_000:.2f} M"
+        )
+
+    else:
+
+        volume_display = (
+            f"${volume_24h:,.0f}"
+        )
+
+
+    col4.metric(
+
+        "📊 Volume 24h",
+
+        volume_display
+
+    )
+
+
+    # ========================================================
+    # INDICATEURS
+    # ========================================================
+
+    st.subheader(
+        "📈 Indicateurs techniques"
+    )
+
+
+    ind1, ind2, ind3, ind4 = (
+        st.columns(4)
     )
 
 
     # RSI
-    col2.metric(
+    ind1.metric(
+
         "📊 RSI",
+
         f"{last_rsi:.2f}"
+
     )
 
 
     # Volatilité
-    col3.metric(
-        "📈 Volatilité",
+    ind2.metric(
+
+        "📉 Volatilité",
+
         f"{last_volatility:.4f}"
+
     )
 
 
-    # Heure actuelle
-    col4.metric(
-        "⏰ Heure Tunisie",
-        current_time_tunis.strftime("%H:%M:%S")
+    # SMA20
+    sma20 = float(
+        df["SMA_20"].iloc[-1]
+    )
+
+    ind3.metric(
+
+        "📏 SMA 20",
+
+        f"${sma20:,.2f}"
+
+    )
+
+
+    # SMA50
+    sma50 = float(
+        df["SMA_50"].iloc[-1]
+    )
+
+    ind4.metric(
+
+        "📏 SMA 50",
+
+        f"${sma50:,.2f}"
+
     )
 
 
     # ========================================================
-    # INFORMATIONS TEMPS
+    # TENDANCE SIMPLE
     # ========================================================
 
-    st.caption(
-        "🕐 Heure actuelle en Tunisie : "
-        + current_time_tunis.strftime(
-            "%d/%m/%Y %H:%M:%S"
-        )
-    )
+    if last_price > sma20 and sma20 > sma50:
 
-    st.caption(
-        "📡 Dernière bougie BTC utilisée : "
-        + last_time.strftime(
-            "%d/%m/%Y %H:%M:%S"
-        )
+        trend = "📈 HAUSSIÈRE"
+
+    elif last_price < sma20 and sma20 < sma50:
+
+        trend = "📉 BAISSIÈRE"
+
+    else:
+
+        trend = "↔️ NEUTRE"
+
+
+    st.info(
+        f"**Tendance actuelle : {trend}**"
     )
 
 
@@ -479,68 +793,66 @@ if df is not None and not df.empty:
     # ========================================================
 
     supports, resistances = (
-        detect_supports_resistances(df)
+        detect_supports_resistances(
+            df
+        )
     )
 
 
     # ========================================================
-    # PRÉPARATION POUR LE MODÈLE
+    # PRÉDICTION DU MODÈLE
     # ========================================================
 
     try:
 
-        X = features.iloc[-1:].values
+        X = features.iloc[
+            -1:
+        ].values
 
 
-        # ----------------------------------------------------
-        # Vérifier le nombre de variables attendu
-        # ----------------------------------------------------
-
+        # Vérification du scaler
         expected_features = getattr(
+
             scaler,
+
             "n_features_in_",
+
             None
+
         )
 
 
         if (
+
             expected_features is not None
-            and X.shape[1] != expected_features
+
+            and X.shape[1]
+            != expected_features
+
         ):
 
             st.error(
-                f"❌ Problème avec le scaler : "
-                f"il attend {expected_features} variables "
-                f"mais le programme en fournit "
-                f"{X.shape[1]}."
-            )
 
-            st.write(
-                "Variables actuellement utilisées :"
-            )
+                f"❌ Le scaler attend "
+                f"{expected_features} variables "
+                f"mais {X.shape[1]} sont fournies."
 
-            st.write(
-                list(features.columns)
             )
 
             st.stop()
 
 
-        # ----------------------------------------------------
         # Scaling
-        # ----------------------------------------------------
-
-        features_scaled = scaler.transform(
-            X
+        features_scaled = (
+            scaler.transform(X)
         )
 
 
-        # ----------------------------------------------------
-        # PRÉDICTION
-        # ----------------------------------------------------
-
-        raw_prediction = model.predict(
-            features_scaled
+        # Prediction
+        raw_prediction = (
+            model.predict(
+                features_scaled
+            )
         )
 
 
@@ -549,30 +861,14 @@ if df is not None and not df.empty:
         )
 
 
-        # ----------------------------------------------------
-        # Corriger la dimension
-        # ----------------------------------------------------
-
         if preds.ndim == 2:
 
             preds = preds[0]
 
-        elif preds.ndim == 1:
 
-            pass
-
-        else:
-
-            raise ValueError(
-                f"Dimension inattendue : {preds.shape}"
-            )
-
-
-        # ----------------------------------------------------
-        # Convertir en float
-        # ----------------------------------------------------
-
-        preds = preds.astype(float)
+        preds = preds.astype(
+            float
+        )
 
 
     except Exception as e:
@@ -587,15 +883,6 @@ if df is not None and not df.empty:
 
 
     # ========================================================
-    # NOMBRE DE PRÉDICTIONS
-    # ========================================================
-
-    number_predictions = len(
-        preds
-    )
-
-
-    # ========================================================
     # HORAIRES FUTURS
     # ========================================================
 
@@ -607,14 +894,14 @@ if df is not None and not df.empty:
         )
 
         for i in range(
-            number_predictions
+            len(preds)
         )
 
     ]
 
 
     # ========================================================
-    # PRIX PRÉDIT
+    # PRIX PRÉDIT 1H
     # ========================================================
 
     future_price = float(
@@ -626,20 +913,27 @@ if df is not None and not df.empty:
     # VARIATION PRÉVUE
     # ========================================================
 
-    pct_change = (
-        future_price - last_price
-    ) / last_price
+    predicted_change = (
+
+        (
+            future_price
+            - last_price
+        )
+        / last_price
+        * 100
+
+    )
 
 
     # ========================================================
     # SIGNAL
     # ========================================================
 
-    if pct_change > 0.003:
+    if predicted_change > 0.3:
 
         signal = "ACHAT 🟢"
 
-    elif pct_change < -0.003:
+    elif predicted_change < -0.3:
 
         signal = "VENTE 🔴"
 
@@ -649,16 +943,45 @@ if df is not None and not df.empty:
 
 
     # ========================================================
-    # AFFICHAGE SIGNAL
+    # SIGNAL
     # ========================================================
 
-    st.markdown(
-        f"## Signal : {signal}"
+    st.subheader(
+        "🤖 Signal du modèle"
     )
 
-    st.markdown(
-        f"### Variation prévue à 1h : "
-        f"{pct_change * 100:.2f}%"
+
+    sig1, sig2, sig3 = (
+        st.columns(3)
+    )
+
+
+    sig1.metric(
+
+        "Signal",
+
+        signal
+
+    )
+
+
+    sig2.metric(
+
+        "Prix actuel",
+
+        f"${last_price:,.2f}"
+
+    )
+
+
+    sig3.metric(
+
+        "Prix prévu 1h",
+
+        f"${future_price:,.2f}",
+
+        f"{predicted_change:+.2f}%"
+
     )
 
 
@@ -666,9 +989,14 @@ if df is not None and not df.empty:
     # GRAPHIQUE
     # ========================================================
 
+    st.subheader(
+        "📊 Analyse graphique BTC"
+    )
+
+
     fig = make_subplots(
 
-        rows=2,
+        rows=3,
 
         cols=1,
 
@@ -677,32 +1005,103 @@ if df is not None and not df.empty:
         vertical_spacing=0.03,
 
         row_heights=[
-            0.7,
-            0.3
+
+            0.60,
+
+            0.20,
+
+            0.20
+
         ]
 
     )
 
 
     # ========================================================
-    # BOUGIES
+    # CANDLESTICK
     # ========================================================
 
     fig.add_trace(
 
         go.Candlestick(
 
-            x=df.index[-50:],
+            x=df.index[-100:],
 
-            open=df["Open"].iloc[-50:],
+            open=df["Open"].iloc[-100:],
 
-            high=df["High"].iloc[-50:],
+            high=df["High"].iloc[-100:],
 
-            low=df["Low"].iloc[-50:],
+            low=df["Low"].iloc[-100:],
 
-            close=df["Close"].iloc[-50:],
+            close=df["Close"].iloc[-100:],
 
-            name="Prix"
+            name="BTC"
+
+        ),
+
+        row=1,
+
+        col=1
+
+    )
+
+
+    # ========================================================
+    # SMA 20
+    # ========================================================
+
+    fig.add_trace(
+
+        go.Scatter(
+
+            x=df.index[-100:],
+
+            y=df["SMA_20"].iloc[-100:],
+
+            mode="lines",
+
+            name="SMA 20",
+
+            line=dict(
+
+                color="orange",
+
+                width=2
+
+            )
+
+        ),
+
+        row=1,
+
+        col=1
+
+    )
+
+
+    # ========================================================
+    # SMA 50
+    # ========================================================
+
+    fig.add_trace(
+
+        go.Scatter(
+
+            x=df.index[-100:],
+
+            y=df["SMA_50"].iloc[-100:],
+
+            mode="lines",
+
+            name="SMA 50",
+
+            line=dict(
+
+                color="blue",
+
+                width=2
+
+            )
 
         ),
 
@@ -727,7 +1126,7 @@ if df is not None and not df.empty:
 
             line_color="green",
 
-            opacity=0.7,
+            opacity=0.6,
 
             row=1,
 
@@ -750,7 +1149,7 @@ if df is not None and not df.empty:
 
             line_color="red",
 
-            opacity=0.7,
+            opacity=0.6,
 
             row=1,
 
@@ -773,7 +1172,7 @@ if df is not None and not df.empty:
 
             mode="lines+markers",
 
-            name="Prédiction 1h",
+            name="Prédiction",
 
             line=dict(
 
@@ -795,37 +1194,6 @@ if df is not None and not df.empty:
 
 
     # ========================================================
-    # SMA 20
-    # ========================================================
-
-    fig.add_trace(
-
-        go.Scatter(
-
-            x=df.index[-50:],
-
-            y=df["SMA_20"].iloc[-50:],
-
-            mode="lines",
-
-            name="SMA 20",
-
-            line=dict(
-
-                color="orange"
-
-            )
-
-        ),
-
-        row=1,
-
-        col=1
-
-    )
-
-
-    # ========================================================
     # RSI
     # ========================================================
 
@@ -833,9 +1201,9 @@ if df is not None and not df.empty:
 
         go.Scatter(
 
-            x=df.index[-50:],
+            x=df.index[-100:],
 
-            y=df["RSI"].iloc[-50:],
+            y=df["RSI"].iloc[-100:],
 
             mode="lines",
 
@@ -843,7 +1211,9 @@ if df is not None and not df.empty:
 
             line=dict(
 
-                color="purple"
+                color="purple",
+
+                width=2
 
             )
 
@@ -856,10 +1226,7 @@ if df is not None and not df.empty:
     )
 
 
-    # ========================================================
     # RSI 70
-    # ========================================================
-
     fig.add_hline(
 
         y=70,
@@ -877,10 +1244,7 @@ if df is not None and not df.empty:
     )
 
 
-    # ========================================================
     # RSI 30
-    # ========================================================
-
     fig.add_hline(
 
         y=30,
@@ -899,12 +1263,37 @@ if df is not None and not df.empty:
 
 
     # ========================================================
+    # VOLUME
+    # ========================================================
+
+    fig.add_trace(
+
+        go.Bar(
+
+            x=df.index[-100:],
+
+            y=df["Volume"].iloc[-100:],
+
+            name="Volume",
+
+            opacity=0.5
+
+        ),
+
+        row=3,
+
+        col=1
+
+    )
+
+
+    # ========================================================
     # LAYOUT
     # ========================================================
 
     fig.update_layout(
 
-        height=700,
+        height=850,
 
         template="plotly_dark",
 
@@ -926,7 +1315,7 @@ if df is not None and not df.empty:
 
 
     # ========================================================
-    # AFFICHER LE GRAPHIQUE
+    # AFFICHER
     # ========================================================
 
     st.plotly_chart(
@@ -939,11 +1328,11 @@ if df is not None and not df.empty:
 
 
     # ========================================================
-    # TABLEAU DES PRÉDICTIONS
+    # TABLEAU PRÉDICTIONS
     # ========================================================
 
     with st.expander(
-        "🔍 Détails des prédictions"
+        "🔮 Détails des prédictions"
     ):
 
 
@@ -951,20 +1340,31 @@ if df is not None and not df.empty:
 
             "Heure": [
 
-                t.strftime("%H:%M")
+                t.strftime(
+                    "%H:%M"
+                )
 
                 for t in future_times
 
             ],
 
-            "Prix prédit ($)": [
+            "Prix prévu": [
 
-                round(
-                    float(price),
-                    2
-                )
+                f"${float(p):,.2f}"
 
-                for price in preds
+                for p in preds
+
+            ],
+
+            "Variation": [
+
+                f"{(
+                    (float(p) - last_price)
+                    / last_price
+                    * 100
+                ):+.2f}%"
+
+                for p in preds
 
             ]
 
@@ -981,66 +1381,69 @@ if df is not None and not df.empty:
 
 
     # ========================================================
-    # INFORMATIONS TECHNIQUES
+    # INFORMATIONS DONNÉES
     # ========================================================
 
     with st.expander(
-        "🤖 Informations du modèle"
+        "ℹ️ Informations sur les données"
     ):
 
         st.write(
-            "Nombre de prédictions :",
-            len(preds)
+            "Source : Yahoo Finance"
         )
 
         st.write(
-            "Variables utilisées :"
+            "Actif : BTC-USD"
         )
 
         st.write(
-            list(features.columns)
+            "Intervalle : 5 minutes"
         )
 
         st.write(
-            "Dimensions de X :",
-            X.shape
+            "Période chargée : 7 jours"
         )
 
         st.write(
-            "Dimensions après scaling :",
-            features_scaled.shape
+            "Nombre de bougies :",
+            len(df)
         )
 
         st.write(
-            "Prix actuel :",
-            last_price
+            "Dernière bougie :",
+            last_time.strftime(
+                "%d/%m/%Y %H:%M:%S"
+            )
         )
 
         st.write(
-            "Prix prédit à 1h :",
-            future_price
-        )
-
-        st.write(
-            "Variation prévue :",
-            f"{pct_change * 100:.2f}%"
+            "Heure actuelle Tunisie :",
+            current_time.strftime(
+                "%d/%m/%Y %H:%M:%S"
+            )
         )
 
 
 else:
 
     st.warning(
-        "⏳ Attente des données BTC..."
+        "⏳ Aucune donnée BTC disponible."
     )
 
 
 # ============================================================
-# RAFRAÎCHISSEMENT AUTOMATIQUE
+# ACTUALISATION AUTOMATIQUE
 # ============================================================
 
 st.markdown(
-    """
-    <meta http-equiv="refresh" content="60">
+
+    f"""
+    <meta
+        http-equiv="refresh"
+        content="{REFRESH_SECONDS}"
+    >
     """,
+
     unsafe_allow_html=True
+
 )
