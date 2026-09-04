@@ -61,11 +61,10 @@ if df is not None and not df.empty:
     last_time = df.index[-1]
     
     col1, col2, col3, col4 = st.columns(4)
-col1.metric("💰 Prix", f"${last_price:,.2f}")
-col2.metric("📊 RSI", f"{df['RSI'].iloc[-1]:.2f}")
-col3.metric("📈 Volatilité", f"{df['Volatility'].iloc[-1]:.4f}")
-col4.metric("⏰ MAJ", last_time.strftime("%H:%M:%S"))
-
+    col1.metric("💰 Prix", f"${last_price:,.2f}")
+    col2.metric("📊 RSI", f"{df['RSI'].iloc[-1]:.2f}")
+    col3.metric("📈 Volatilité", f"{df['Volatility'].iloc[-1]:.4f}")
+    col4.metric("⏰ MAJ", last_time.strftime("%H:%M:%S"))
 
     supports, resistances = detect_supports_resistances(df)
     
