@@ -1,8 +1,3 @@
-# ============================================================
-# BTC ALGO TRADING - V2.4
-# ML Prediction + Signals + Backtest
-# ============================================================
-
 import streamlit as st
 import yfinance as yf
 import pandas as pd
@@ -11,11 +6,12 @@ import plotly.graph_objects as go
 
 from plotly.subplots import make_subplots
 from scipy.signal import argrelextrema
+
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
+
 import joblib
 import os
-import math
 
 
 # ============================================================
@@ -23,64 +19,72 @@ import math
 # ============================================================
 
 st.set_page_config(
-    page_title="BTC Algo Trading V2.4",
-    page_icon="₿",
+    page_title="BTC Algo Trading V2.3",
+    page_icon="🤖",
     layout="wide"
 )
 
-st.title("🤖 BTC Algo Trading — V2.4")
-st.caption(
-    "Machine Learning + Analyse technique + Backtest "
-    "⚠️ Simulation éducative, pas une garantie de performance."
-)
+st.title("🤖 BTC Algo Trading — V2.3")
+
+
+# ============================================================
+# PARAMÈTRES
+# ============================================================
 
 TUNIS_TZ = ZoneInfo("Africa/Tunis")
 
 REFRESH_SECONDS = 60
 
-MODEL_FILE = "btc_multioutput_rf.pkl"
-SCALER_FILE = "scaler.pkl"
+TIMEFRAME = "5m"
+
+PERIOD = "7d"
+
 HISTORY_FILE = "prediction_history.csv"
 
-
-# ============================================================
-# AUTO REFRESH
-# ============================================================
-
-st.markdown(
-    f"""
-    <meta http-equiv="refresh" content="{REFRESH_SECONDS}">
-    """,
-    unsafe_allow_html=True
-)
+PREDICTION_HORIZON_MINUTES = 60
 
 
 # ============================================================
-# CHARGEMENT DU MODELE
+# CHARGEMENT DU MODÈLE
 # ============================================================
 
 @st.cache_resource
 def load_model():
 
-    if not os.path.exists(MODEL_FILE):
-        st.error(f"❌ Fichier modèle introuvable : {MODEL_FILE}")
-        st.stop()
+    try:
 
-    if not os.path.exists(SCALER_FILE):
-        st.error(f"❌ Fichier scaler introuvable : {SCALER_FILE}")
-        st.stop()
+        model = joblib.load(
+            "btc_multioutput_rf.pkl"
+        )
 
-    model = joblib.load(MODEL_FILE)
-    scaler = joblib.load(SCALER_FILE)
+        scaler = joblib.load(
+            "scaler.pkl"
+        )
 
-    return model, scaler
+        return model, scaler
+
+    except Exception as e:
+
+        st.error(
+            "❌ Impossible de charger "
+            "btc_multioutput_rf.pkl ou scaler.pkl"
+        )
+
+        st.exception(e)
+
+        return None, None
 
 
 model, scaler = load_model()
 
 
+if model is None or scaler is None:
+
+    st.stop()
+
+
 # ============================================================
-# TELECHARGEMENT DES DONNEES
+# RÉCUPÉRATION DES DONNÉES
 # ============================================================
 
 @st.cache_data(ttl=60)
@@ -90,211 +94,279 @@ def fetch_data():
 
         df = yf.download(
             "BTC-USD",
-            period="7d",
-            interval="5m",
+            period=PERIOD,
+            interval=TIMEFRAME,
             progress=False,
             auto_adjust=False
         )
 
-    except Exception as e:
+        if df is None or df.empty:
 
-        st.error(f"Erreur téléchargement BTC : {e}")
-        return None, None
-
-    if df is None or df.empty:
-        return None, None
+            return None, None
 
 
-    # --------------------------------------------------------
-    # Gestion MultiIndex Yahoo Finance
-    # --------------------------------------------------------
+        # ====================================================
+        # CORRECTION MULTIINDEX
+        # ====================================================
 
-    if isinstance(df.columns, pd.MultiIndex):
+        if isinstance(
+            df.columns,
+            pd.MultiIndex
+        ):
 
-        df.columns = df.columns.get_level_values(0)
-
-
-    # --------------------------------------------------------
-    # Suppression doublons
-    # --------------------------------------------------------
-
-    df = df[~df.index.duplicated(keep="first")]
-
-
-    # --------------------------------------------------------
-    # Index temporel
-    # --------------------------------------------------------
-
-    if df.index.tz is None:
-
-        df.index = df.index.tz_localize("UTC")
-
-    else:
-
-        df.index = df.index.tz_convert("UTC")
+            df.columns = (
+                df.columns
+                .get_level_values(0)
+            )
 
 
-    # --------------------------------------------------------
-    # Fréquence 5 minutes
-    # --------------------------------------------------------
+        # ====================================================
+        # COLONNES
+        # ====================================================
 
-    df = df.asfreq("5min", method="ffill")
+        required_columns = [
+
+            "Open",
+            "High",
+            "Low",
+            "Close",
+            "Volume"
+
+        ]
 
 
-    # --------------------------------------------------------
-    # Conversion numérique
-    # --------------------------------------------------------
+        missing_columns = [
 
-    numeric_columns = [
-        "Open",
-        "High",
-        "Low",
-        "Close",
-        "Volume"
-    ]
+            col
+            for col in required_columns
 
-    for col in numeric_columns:
+            if col not in df.columns
 
-        if col in df.columns:
+        ]
+
+
+        if missing_columns:
+
+            raise ValueError(
+                f"Colonnes manquantes : "
+                f"{missing_columns}"
+            )
+
+
+        # ====================================================
+        # NUMÉRIQUE
+        # ====================================================
+
+        for col in required_columns:
+
             df[col] = pd.to_numeric(
                 df[col],
                 errors="coerce"
             )
 
 
-    # ========================================================
-    # INDICATEURS
-    # ========================================================
+        # ====================================================
+        # TIMEZONE TUNISIE
+        # ====================================================
 
-    # --------------------------------------------------------
-    # RSI
-    # --------------------------------------------------------
+        if df.index.tz is not None:
 
-    delta = df["Close"].diff()
+            df.index = (
+                df.index
+                .tz_convert(
+                    "Africa/Tunis"
+                )
+            )
 
-    gain = delta.where(
-        delta > 0,
-        0
-    ).rolling(14).mean()
+        else:
 
-    loss = (
-        -delta.where(
-            delta < 0,
-            0
+            df.index = (
+                df.index
+                .tz_localize("UTC")
+                .tz_convert(
+                    "Africa/Tunis"
+                )
+            )
+
+
+        # ====================================================
+        # NETTOYAGE
+        # ====================================================
+
+        df = df[
+            ~df.index.duplicated(
+                keep="first"
+            )
+        ]
+
+        df = df.sort_index()
+
+
+        # ====================================================
+        # FRÉQUENCE 5 MIN
+        # ====================================================
+
+        df = df.asfreq(
+            "5min",
+            method="ffill"
         )
-        .rolling(14)
-        .mean()
-    )
-
-    rs = gain / loss
-
-    df["RSI"] = 100 - (
-        100 / (1 + rs)
-    )
 
 
-    # --------------------------------------------------------
-    # Moyennes mobiles
-    # --------------------------------------------------------
+        # ====================================================
+        # RSI
+        # ====================================================
 
-    df["SMA_5"] = (
-        df["Close"]
-        .rolling(5)
-        .mean()
-    )
+        delta = df["Close"].diff()
 
-    df["SMA_20"] = (
-        df["Close"]
-        .rolling(20)
-        .mean()
-    )
+        gain = (
+            delta
+            .where(delta > 0, 0)
+            .rolling(14)
+            .mean()
+        )
 
-    df["SMA_50"] = (
-        df["Close"]
-        .rolling(50)
-        .mean()
-    )
+        loss = (
+            -delta
+            .where(delta < 0, 0)
+            .rolling(14)
+            .mean()
+        )
 
+        rs = gain / loss
 
-    # --------------------------------------------------------
-    # Rendements
-    # --------------------------------------------------------
-
-    df["Returns"] = (
-        df["Close"]
-        .pct_change()
-    )
+        df["RSI"] = (
+            100
+            - (
+                100 / (1 + rs)
+            )
+        )
 
 
-    # --------------------------------------------------------
-    # Volatilité
-    # --------------------------------------------------------
+        # ====================================================
+        # SMA
+        # ====================================================
 
-    df["Volatility"] = (
-        df["Returns"]
-        .rolling(20)
-        .std()
-    )
+        df["SMA_5"] = (
+            df["Close"]
+            .rolling(5)
+            .mean()
+        )
 
+        df["SMA_20"] = (
+            df["Close"]
+            .rolling(20)
+            .mean()
+        )
 
-    # --------------------------------------------------------
-    # Lags
-    # --------------------------------------------------------
-
-    df["Close_lag1"] = (
-        df["Close"].shift(1)
-    )
-
-    df["Close_lag2"] = (
-        df["Close"].shift(2)
-    )
-
-    df["Close_lag5"] = (
-        df["Close"].shift(5)
-    )
+        df["SMA_50"] = (
+            df["Close"]
+            .rolling(50)
+            .mean()
+        )
 
 
-    # --------------------------------------------------------
-    # High / Low ratio
-    # --------------------------------------------------------
+        # ====================================================
+        # RETURNS
+        # ====================================================
 
-    df["High_low_ratio"] = (
-        df["High"] /
-        df["Low"]
-    )
-
-
-    # --------------------------------------------------------
-    # Nettoyage
-    # --------------------------------------------------------
-
-    df.dropna(inplace=True)
+        df["Returns"] = (
+            df["Close"]
+            .pct_change()
+        )
 
 
-    # ========================================================
-    # FEATURES DU MODELE
-    # ========================================================
+        # ====================================================
+        # VOLATILITÉ
+        # ====================================================
 
-    feature_columns = [
-        "RSI",
-        "SMA_5",
-        "SMA_20",
-        "SMA_50",
-        "Volatility",
-        "Close_lag1",
-        "Close_lag2",
-        "Close_lag5",
-        "High_low_ratio",
-        "Close"
-    ]
+        df["Volatility"] = (
+            df["Returns"]
+            .rolling(20)
+            .std()
+        )
 
-    features = df[feature_columns].copy()
 
-    return df, features
+        # ====================================================
+        # LAGS
+        # ====================================================
+
+        df["Close_lag1"] = (
+            df["Close"]
+            .shift(1)
+        )
+
+        df["Close_lag2"] = (
+            df["Close"]
+            .shift(2)
+        )
+
+        df["Close_lag5"] = (
+            df["Close"]
+            .shift(5)
+        )
+
+
+        # ====================================================
+        # HIGH / LOW RATIO
+        # ====================================================
+
+        df["High_low_ratio"] = (
+            df["High"]
+            / df["Low"]
+        )
+
+
+        # ====================================================
+        # NETTOYAGE
+        # ====================================================
+
+        df.dropna(
+            inplace=True
+        )
+
+
+        # ====================================================
+        # VARIABLES DU MODÈLE
+        # ====================================================
+
+        feature_columns = [
+
+            "RSI",
+            "SMA_5",
+            "SMA_20",
+            "SMA_50",
+            "Volatility",
+            "Close_lag1",
+            "Close_lag2",
+            "Close_lag5",
+            "High_low_ratio",
+            "Close"
+
+        ]
+
+
+        features = df[
+            feature_columns
+        ].copy()
+
+
+        return df, features
+
+
+    except Exception as e:
+
+        st.error(
+            "❌ Erreur lors de la récupération "
+            "des données BTC."
+        )
+
+        st.exception(e)
+
+        return None, None
 
 
 # ============================================================
-# SUPPORTS / RESISTANCES
+# SUPPORTS / RÉSISTANCES
 # ============================================================
 
 def detect_supports_resistances(
@@ -316,19 +388,29 @@ def detect_supports_resistances(
             order=order
         )[0]
 
+
         resistances = (
-            df.iloc[local_max_idx]["High"]
+            df.iloc[
+                local_max_idx
+            ]["High"]
             .tail(5)
+            .astype(float)
             .tolist()
         )
+
 
         supports = (
-            df.iloc[local_min_idx]["Low"]
+            df.iloc[
+                local_min_idx
+            ]["Low"]
             .tail(5)
+            .astype(float)
             .tolist()
         )
 
+
         return supports, resistances
+
 
     except Exception:
 
@@ -336,11 +418,11 @@ def detect_supports_resistances(
 
 
 # ============================================================
-# CALCUL DU SIGNAL
+# SIGNAL INTELLIGENT V2.2
 # ============================================================
 
 def calculate_signal(
-    current_price,
+    last_price,
     predicted_price,
     rsi,
     sma20,
@@ -353,139 +435,213 @@ def calculate_signal(
 
 
     # ========================================================
-    # 1. MACHINE LEARNING
+    # MODÈLE ML
     # ========================================================
 
     predicted_change = (
-        predicted_price - current_price
-    ) / current_price
+
+        (
+            predicted_price
+            - last_price
+        )
+        / last_price
+        * 100
+
+    )
 
 
-    if predicted_change > 0.003:
+    if predicted_change > 0.30:
+
+        ml_signal = "HAUSSIER 🟢"
 
         score += 50
 
-    elif predicted_change < -0.003:
+
+    elif predicted_change < -0.30:
+
+        ml_signal = "BAISSIER 🔴"
 
         score -= 50
 
 
+    else:
+
+        ml_signal = "NEUTRE 🟡"
+
+
     # ========================================================
-    # 2. TENDANCE
+    # TENDANCE
     # ========================================================
 
     if (
-        current_price > sma20
+        last_price > sma20
         and sma20 > sma50
     ):
 
+        trend_signal = "HAUSSIÈRE 🟢"
+
         score += 25
 
+
     elif (
-        current_price < sma20
+        last_price < sma20
         and sma20 < sma50
     ):
+
+        trend_signal = "BAISSIÈRE 🔴"
 
         score -= 25
 
 
+    else:
+
+        trend_signal = "NEUTRE 🟡"
+
+
     # ========================================================
-    # 3. RSI
+    # RSI
     # ========================================================
 
     if rsi < 30:
 
+        rsi_signal = "SURVENTE 🟢"
+
         score += 15
+
 
     elif rsi > 70:
 
+        rsi_signal = "SURACHAT 🔴"
+
         score -= 15
+
 
     elif rsi >= 50:
 
+        rsi_signal = "MOMENTUM HAUSSIER 🟢"
+
         score += 7
 
+
     else:
+
+        rsi_signal = "MOMENTUM BAISSIER 🔴"
 
         score -= 7
 
 
     # ========================================================
-    # 4. SUPPORT
+    # SUPPORT
     # ========================================================
+
+    support_signal = "NEUTRE 🟡"
+
+    resistance_signal = "NEUTRE 🟡"
+
 
     if supports:
 
-        nearest_support = min(
-            supports,
-            key=lambda x: abs(
-                current_price - x
-            )
+        nearest_support = max(
+            [
+                s
+                for s in supports
+                if s < last_price
+            ],
+            default=None
         )
 
-        distance_support = abs(
-            current_price -
-            nearest_support
-        ) / current_price
+
+        if nearest_support is not None:
+
+            distance_support = (
+
+                (
+                    last_price
+                    - nearest_support
+                )
+                / last_price
+                * 100
+
+            )
 
 
-        if distance_support < 0.005:
+            if distance_support < 1:
 
-            score += 10
+                support_signal = (
+                    "PROCHE SUPPORT 🟢"
+                )
+
+                score += 10
 
 
     # ========================================================
-    # 5. RESISTANCE
+    # RÉSISTANCE
     # ========================================================
 
     if resistances:
 
         nearest_resistance = min(
-            resistances,
-            key=lambda x: abs(
-                current_price - x
-            )
+
+            [
+                r
+                for r in resistances
+                if r > last_price
+            ],
+
+            default=None
+
         )
 
-        distance_resistance = abs(
-            current_price -
-            nearest_resistance
-        ) / current_price
+
+        if nearest_resistance is not None:
+
+            distance_resistance = (
+
+                (
+                    nearest_resistance
+                    - last_price
+                )
+                / last_price
+                * 100
+
+            )
 
 
-        if distance_resistance < 0.005:
+            if distance_resistance < 1:
 
-            score -= 10
+                resistance_signal = (
+                    "PROCHE RÉSISTANCE 🔴"
+                )
+
+                score -= 10
 
 
     # ========================================================
-    # SIGNAL
+    # SIGNAL FINAL
     # ========================================================
 
     if score >= 50:
 
-        signal = "ACHAT 🟢"
+        final_signal = "ACHAT 🟢"
 
     elif score <= -50:
 
-        signal = "VENTE 🔴"
+        final_signal = "VENTE 🔴"
 
     else:
 
-        signal = "ATTENDRE 🟡"
+        final_signal = "ATTENDRE 🟡"
 
 
     # ========================================================
     # FORCE
     # ========================================================
 
-    abs_score = abs(score)
-
-    if abs_score >= 75:
+    if abs(score) >= 75:
 
         strength = "FORTE"
 
-    elif abs_score >= 50:
+    elif abs(score) >= 50:
 
         strength = "MOYENNE"
 
@@ -494,47 +650,35 @@ def calculate_signal(
         strength = "FAIBLE"
 
 
-    return signal, score, strength
+    return {
+
+        "score": score,
+
+        "signal": final_signal,
+
+        "strength": strength,
+
+        "predicted_change": predicted_change,
+
+        "ml_signal": ml_signal,
+
+        "trend_signal": trend_signal,
+
+        "rsi_signal": rsi_signal,
+
+        "support_signal": support_signal,
+
+        "resistance_signal": resistance_signal
+
+    }
 
 
 # ============================================================
-# HISTORIQUE DES PREDICTIONS
+# HISTORIQUE DES PRÉDICTIONS
 # ============================================================
-
-def load_prediction_history():
-
-    if not os.path.exists(HISTORY_FILE):
-
-        return pd.DataFrame(
-            columns=[
-                "prediction_time",
-                "target_time",
-                "current_price",
-                "predicted_price",
-                "signal",
-                "score",
-                "actual_price",
-                "error",
-                "absolute_error",
-                "actual_change_pct",
-                "predicted_change_pct",
-                "direction_correct"
-            ]
-        )
-
-    try:
-
-        return pd.read_csv(
-            HISTORY_FILE
-        )
-
-    except Exception:
-
-        return pd.DataFrame()
-
 
 def save_prediction(
-    current_time,
+    prediction_time,
     target_time,
     current_price,
     predicted_price,
@@ -542,81 +686,145 @@ def save_prediction(
     score
 ):
 
-    history = load_prediction_history()
+    new_row = pd.DataFrame({
 
+        "prediction_time": [
+            prediction_time.isoformat()
+        ],
 
-    # --------------------------------------------------------
-    # Vérifier si cette prédiction existe déjà
-    # --------------------------------------------------------
+        "target_time": [
+            target_time.isoformat()
+        ],
 
-    if not history.empty:
+        "current_price": [
+            current_price
+        ],
 
-        existing = history[
+        "predicted_price": [
+            predicted_price
+        ],
+
+        "signal": [
+            signal
+        ],
+
+        "score": [
+            score
+        ],
+
+        "actual_price": [
+            np.nan
+        ],
+
+        "error": [
+            np.nan
+        ],
+
+        "absolute_error": [
+            np.nan
+        ],
+
+        "actual_change_pct": [
+            np.nan
+        ],
+
+        "predicted_change_pct": [
             (
-                history["prediction_time"]
-                .astype(str)
-                ==
-                str(current_time)
+                (
+                    predicted_price
+                    - current_price
+                )
+                / current_price
+                * 100
             )
+        ],
+
+        "direction_correct": [
+            np.nan
         ]
 
-        if not existing.empty:
+    })
+
+
+    # ========================================================
+    # CRÉATION
+    # ========================================================
+
+    if not os.path.exists(
+        HISTORY_FILE
+    ):
+
+        new_row.to_csv(
+            HISTORY_FILE,
+            index=False
+        )
+
+        return
+
+
+    # ========================================================
+    # LECTURE
+    # ========================================================
+
+    try:
+
+        history = pd.read_csv(
+            HISTORY_FILE
+        )
+
+    except Exception:
+
+        new_row.to_csv(
+            HISTORY_FILE,
+            index=False
+        )
+
+        return
+
+
+    # ========================================================
+    # ÉVITER LES DOUBLONS
+    # ========================================================
+
+    if len(history) > 0:
+
+        already_exists = (
+
+            (
+                history[
+                    "prediction_time"
+                ].astype(str)
+                == prediction_time.isoformat()
+            )
+            &
+            (
+                history[
+                    "target_time"
+                ].astype(str)
+                == target_time.isoformat()
+            )
+
+        ).any()
+
+
+        if already_exists:
 
             return
 
 
-    predicted_change = (
-        predicted_price -
-        current_price
-    ) / current_price
-
-
-    new_row = {
-
-        "prediction_time":
-            str(current_time),
-
-        "target_time":
-            str(target_time),
-
-        "current_price":
-            float(current_price),
-
-        "predicted_price":
-            float(predicted_price),
-
-        "signal":
-            signal,
-
-        "score":
-            float(score),
-
-        "actual_price":
-            np.nan,
-
-        "error":
-            np.nan,
-
-        "absolute_error":
-            np.nan,
-
-        "actual_change_pct":
-            np.nan,
-
-        "predicted_change_pct":
-            predicted_change * 100,
-
-        "direction_correct":
-            np.nan
-    }
-
+    # ========================================================
+    # AJOUT
+    # ========================================================
 
     history = pd.concat(
+
         [
             history,
-            pd.DataFrame([new_row])
+            new_row
         ],
+
         ignore_index=True
+
     )
 
 
@@ -627,12 +835,45 @@ def save_prediction(
 
 
 # ============================================================
-# EVALUATION DES PREDICTIONS
+# CHARGER HISTORIQUE
+# ============================================================
+
+def load_history():
+
+    if not os.path.exists(
+        HISTORY_FILE
+    ):
+
+        return pd.DataFrame()
+
+
+    try:
+
+        history = pd.read_csv(
+            HISTORY_FILE
+        )
+
+
+        if history.empty:
+
+            return history
+
+
+        return history
+
+
+    except Exception:
+
+        return pd.DataFrame()
+
+
+# ============================================================
+# ÉVALUER LES PRÉDICTIONS
 # ============================================================
 
 def evaluate_predictions(
     history,
-    prices
+    df
 ):
 
     if history.empty:
@@ -643,54 +884,61 @@ def evaluate_predictions(
     history = history.copy()
 
 
-    # --------------------------------------------------------
-    # Conversion dates
-    # --------------------------------------------------------
+    # ========================================================
+    # CONVERSION DATES
+    # ========================================================
 
-    history["target_time"] = pd.to_datetime(
+    history[
+        "target_datetime"
+    ] = pd.to_datetime(
         history["target_time"],
-        utc=True,
-        errors="coerce"
+        utc=True
     )
 
 
-    prices = prices.copy()
+    # ========================================================
+    # PRIX BTC
+    # ========================================================
 
-    if prices.index.tz is None:
-
-        prices.index = (
-            prices.index
-            .tz_localize("UTC")
-        )
-
-    else:
-
-        prices.index = (
-            prices.index
-            .tz_convert("UTC")
-        )
+    prices = df[
+        ["Close"]
+    ].copy()
 
 
-    # --------------------------------------------------------
-    # Evaluation
-    # --------------------------------------------------------
+    prices.index = pd.to_datetime(
+        prices.index,
+        utc=True
+    )
 
-    for idx, row in history.iterrows():
 
+    # ========================================================
+    # ÉVALUATION
+    # ========================================================
+
+    for i in history.index:
+
+        # Déjà évalué
         if pd.notna(
-            history.loc[idx, "actual_price"]
+            history.at[
+                i,
+                "actual_price"
+            ]
         ):
 
             continue
 
 
-        target_time = row["target_time"]
+        target_time = (
+            history.at[
+                i,
+                "target_datetime"
+            ]
+        )
 
 
-        if pd.isna(target_time):
-
-            continue
-
+        # ----------------------------------------------------
+        # Vérifier si l'horizon est atteint
+        # ----------------------------------------------------
 
         available = prices[
             prices.index >= target_time
@@ -702,82 +950,178 @@ def evaluate_predictions(
             continue
 
 
+        # ----------------------------------------------------
+        # Prix réel
+        # ----------------------------------------------------
+
         actual_price = float(
-            available["Close"].iloc[0]
-        )
-
-
-        current_price = float(
-            row["current_price"]
+            available.iloc[0]["Close"]
         )
 
 
         predicted_price = float(
-            row["predicted_price"]
+            history.at[
+                i,
+                "predicted_price"
+            ]
         )
 
+
+        current_price = float(
+            history.at[
+                i,
+                "current_price"
+            ]
+        )
+
+
+        # ----------------------------------------------------
+        # Erreur
+        # ----------------------------------------------------
 
         error = (
-            actual_price -
             predicted_price
+            - actual_price
         )
 
 
-        absolute_error = abs(error)
+        absolute_error = abs(
+            error
+        )
+
+
+        # ----------------------------------------------------
+        # Variations
+        # ----------------------------------------------------
+
+        predicted_change = (
+
+            (
+                predicted_price
+                - current_price
+            )
+            / current_price
+            * 100
+
+        )
 
 
         actual_change = (
-            actual_price -
-            current_price
-        ) / current_price
 
+            (
+                actual_price
+                - current_price
+            )
+            / current_price
+            * 100
 
-        predicted_change = (
-            predicted_price -
-            current_price
-        ) / current_price
-
-
-        direction_correct = (
-            np.sign(actual_change)
-            ==
-            np.sign(predicted_change)
         )
 
 
-        history.loc[
-            idx,
+        # ----------------------------------------------------
+        # Direction
+        # ----------------------------------------------------
+
+        predicted_direction = (
+
+            1
+            if predicted_change > 0
+            else -1
+            if predicted_change < 0
+            else 0
+
+        )
+
+
+        actual_direction = (
+
+            1
+            if actual_change > 0
+            else -1
+            if actual_change < 0
+            else 0
+
+        )
+
+
+        direction_correct = (
+
+            predicted_direction
+            == actual_direction
+
+        )
+
+
+        # ----------------------------------------------------
+        # Sauvegarde
+        # ----------------------------------------------------
+
+        history.at[
+            i,
             "actual_price"
         ] = actual_price
 
 
-        history.loc[
-            idx,
+        history.at[
+            i,
             "error"
         ] = error
 
 
-        history.loc[
-            idx,
+        history.at[
+            i,
             "absolute_error"
         ] = absolute_error
 
 
-        history.loc[
-            idx,
+        history.at[
+            i,
             "actual_change_pct"
-        ] = actual_change * 100
+        ] = actual_change
 
 
-        history.loc[
-            idx,
+        history.at[
+            i,
+            "predicted_change_pct"
+        ] = predicted_change
+
+
+        history.at[
+            i,
             "direction_correct"
         ] = direction_correct
 
 
-    history.to_csv(
+    # ========================================================
+    # SAUVEGARDE
+    # ========================================================
+
+    columns_to_save = [
+
+        "prediction_time",
+        "target_time",
+        "current_price",
+        "predicted_price",
+        "signal",
+        "score",
+        "actual_price",
+        "error",
+        "absolute_error",
+        "actual_change_pct",
+        "predicted_change_pct",
+        "direction_correct"
+
+    ]
+
+
+    history[
+        columns_to_save
+    ].to_csv(
+
         HISTORY_FILE,
+
         index=False
+
     )
 
 
@@ -785,428 +1129,157 @@ def evaluate_predictions(
 
 
 # ============================================================
-# BACKTEST
+# CALCUL DES PERFORMANCES
 # ============================================================
 
-def run_backtest(
-    df,
-    model,
-    scaler,
-    initial_capital=10000,
-    threshold=0.003,
-    fee=0.001
-):
+def calculate_metrics(history):
 
-    data = df.copy()
+    if history.empty:
 
+        return {
 
-    feature_columns = [
-        "RSI",
-        "SMA_5",
-        "SMA_20",
-        "SMA_50",
-        "Volatility",
-        "Close_lag1",
-        "Close_lag2",
-        "Close_lag5",
-        "High_low_ratio",
-        "Close"
-    ]
+            "n": 0,
+
+            "accuracy": np.nan,
+
+            "mae": np.nan,
+
+            "rmse": np.nan,
+
+            "mean_error": np.nan
+
+        }
 
 
-    # ========================================================
-    # PREDICTIONS
-    # ========================================================
-
-    X = data[
-        feature_columns
+    evaluated = history[
+        history["actual_price"].notna()
     ].copy()
 
 
-    X_scaled = scaler.transform(X)
+    if evaluated.empty:
+
+        return {
+
+            "n": 0,
+
+            "accuracy": np.nan,
+
+            "mae": np.nan,
+
+            "rmse": np.nan,
+
+            "mean_error": np.nan
+
+        }
 
 
-    predictions = model.predict(
-        X_scaled
+    # ========================================================
+    # ACCURACY
+    # ========================================================
+
+    direction_values = (
+        evaluated[
+            "direction_correct"
+        ]
+        .dropna()
+        .astype(bool)
     )
 
 
-    # Dernière prédiction du modèle
-    predicted_prices = predictions[:, -1]
-
-
-    data["PredictedPrice"] = (
-        predicted_prices
-    )
-
-
-    data["PredictedChange"] = (
-        data["PredictedPrice"] -
-        data["Close"]
-    ) / data["Close"]
-
-
-    # ========================================================
-    # SIGNAL SIMPLE POUR LE BACKTEST
-    # ========================================================
-
-    data["Position"] = 0
-
-
-    data.loc[
-        data["PredictedChange"] > threshold,
-        "Position"
-    ] = 1
-
-
-    data.loc[
-        data["PredictedChange"] < -threshold,
-        "Position"
-    ] = -1
-
-
-    # ========================================================
-    # RENDEMENT DU BTC
-    # ========================================================
-
-    data["MarketReturn"] = (
-        data["Close"]
-        .pct_change()
-        .fillna(0)
-    )
-
-
-    # ========================================================
-    # STRATEGIE
-    # ========================================================
-
-    # On utilise le signal de la barre précédente
-    # afin d'éviter d'utiliser le futur.
-
-    data["StrategyPosition"] = (
-        data["Position"].shift(1)
-        .fillna(0)
-    )
-
-
-    data["StrategyReturn"] = (
-        data["StrategyPosition"] *
-        data["MarketReturn"]
-    )
-
-
-    # ========================================================
-    # FRAIS
-    # ========================================================
-
-    position_change = (
-        data["StrategyPosition"]
-        .diff()
-        .abs()
-        .fillna(0)
-    )
-
-
-    data["TradingCost"] = (
-        position_change * fee
-    )
-
-
-    data["NetStrategyReturn"] = (
-        data["StrategyReturn"] -
-        data["TradingCost"]
-    )
-
-
-    # ========================================================
-    # CAPITAL
-    # ========================================================
-
-    data["StrategyEquity"] = (
-        initial_capital *
-        (
-            1 +
-            data["NetStrategyReturn"]
-        ).cumprod()
-    )
-
-
-    # ========================================================
-    # BUY & HOLD
-    # ========================================================
-
-    first_price = (
-        data["Close"].iloc[0]
-    )
-
-
-    data["BuyHoldEquity"] = (
-        initial_capital *
-        data["Close"] /
-        first_price
-    )
-
-
-    # ========================================================
-    # DRAWDOWN
-    # ========================================================
-
-    rolling_max = (
-        data["StrategyEquity"]
-        .cummax()
-    )
-
-
-    data["Drawdown"] = (
-        data["StrategyEquity"] /
-        rolling_max
-        - 1
-    )
-
-
-    # ========================================================
-    # STATISTIQUES
-    # ========================================================
-
-    final_equity = float(
-        data["StrategyEquity"].iloc[-1]
-    )
-
-
-    final_buyhold = float(
-        data["BuyHoldEquity"].iloc[-1]
-    )
-
-
-    total_return = (
-        final_equity /
-        initial_capital
-        - 1
-    )
-
-
-    buyhold_return = (
-        final_buyhold /
-        initial_capital
-        - 1
-    )
-
-
-    max_drawdown = float(
-        data["Drawdown"].min()
-    )
-
-
-    # ========================================================
-    # TRADES
-    # ========================================================
-
-    trades = []
-
-
-    current_position = 0
-    entry_price = None
-    entry_time = None
-
-
-    for i in range(
-        1,
-        len(data)
-    ):
-
-        position = int(
-            data["StrategyPosition"].iloc[i]
-        )
-
-
-        price = float(
-            data["Close"].iloc[i]
-        )
-
-
-        timestamp = (
-            data.index[i]
-        )
-
-
-        # ----------------------------------------------------
-        # Nouvelle position
-        # ----------------------------------------------------
-
-        if (
-            position != current_position
-        ):
-
-            # Fermer ancienne position
-            if current_position != 0:
-
-                if current_position == 1:
-
-                    trade_return = (
-                        price -
-                        entry_price
-                    ) / entry_price
-
-                else:
-
-                    trade_return = (
-                        entry_price -
-                        price
-                    ) / entry_price
-
-
-                trade_return -= (
-                    fee * 2
-                )
-
-
-                trades.append({
-
-                    "Entrée":
-                        entry_time,
-
-                    "Sortie":
-                        timestamp,
-
-                    "Position":
-                        "LONG"
-                        if current_position == 1
-                        else "SHORT",
-
-                    "Prix entrée":
-                        entry_price,
-
-                    "Prix sortie":
-                        price,
-
-                    "Rendement %":
-                        trade_return * 100,
-
-                    "Résultat":
-                        "GAIN"
-                        if trade_return > 0
-                        else "PERTE"
-                })
-
-
-            # Ouvrir nouvelle position
-            if position != 0:
-
-                entry_price = price
-                entry_time = timestamp
-
-
-            current_position = position
-
-
-    trades_df = pd.DataFrame(
-        trades
-    )
-
-
-    # ========================================================
-    # WIN RATE
-    # ========================================================
-
-    if not trades_df.empty:
-
-        win_rate = (
-            (
-                trades_df["Rendement %"]
-                > 0
-            ).mean()
-        )
-
-        number_trades = len(
-            trades_df
+    if len(direction_values) > 0:
+
+        accuracy = (
+            direction_values.mean()
+            * 100
         )
 
     else:
 
-        win_rate = 0
-        number_trades = 0
+        accuracy = np.nan
 
 
     # ========================================================
-    # SHARPE
+    # MAE
     # ========================================================
 
-    returns = (
-        data["NetStrategyReturn"]
+    mae = (
+        evaluated[
+            "absolute_error"
+        ]
+        .mean()
     )
 
 
-    std_return = returns.std()
+    # ========================================================
+    # RMSE
+    # ========================================================
 
+    rmse = np.sqrt(
 
-    if std_return != 0:
+        np.mean(
 
-        sharpe = (
-            returns.mean() /
-            std_return
-        ) * np.sqrt(
-            365 * 24 * 12
+            evaluated[
+                "error"
+            ] ** 2
+
         )
 
-    else:
-
-        sharpe = 0
+    )
 
 
     # ========================================================
-    # RESULTATS
+    # ERREUR MOYENNE
     # ========================================================
 
-    stats = {
+    mean_error = (
+        evaluated["error"]
+        .mean()
+    )
 
-        "Capital initial":
-            initial_capital,
 
-        "Capital final":
-            final_equity,
+    return {
 
-        "Rendement stratégie":
-            total_return,
+        "n": len(evaluated),
 
-        "Capital Buy & Hold":
-            final_buyhold,
+        "accuracy": accuracy,
 
-        "Rendement Buy & Hold":
-            buyhold_return,
+        "mae": mae,
 
-        "Drawdown maximal":
-            max_drawdown,
+        "rmse": rmse,
 
-        "Win Rate":
-            win_rate,
+        "mean_error": mean_error
 
-        "Nombre de trades":
-            number_trades,
-
-        "Sharpe":
-            sharpe
     }
 
 
-    return data, trades_df, stats
-
-
 # ============================================================
-# RECUPERATION DES DONNEES
+# DONNÉES
 # ============================================================
 
 df, features = fetch_data()
 
 
 # ============================================================
-# SI DONNEES DISPONIBLES
+# APPLICATION
 # ============================================================
 
 if df is not None and not df.empty:
 
 
     # ========================================================
-    # PRIX ACTUEL
+    # TEMPS
+    # ========================================================
+
+    current_time = datetime.now(
+        TUNIS_TZ
+    )
+
+
+    last_time = df.index[-1]
+
+
+    # ========================================================
+    # PRIX
     # ========================================================
 
     last_price = float(
@@ -1214,82 +1287,221 @@ if df is not None and not df.empty:
     )
 
 
-    last_data_time = (
-        df.index[-1]
-    )
+    # ========================================================
+    # VARIATIONS
+    # ========================================================
 
+    if len(df) >= 2:
 
-    current_time = (
-        datetime.now(
-            TUNIS_TZ
+        price_5m = float(
+            df["Close"].iloc[-2]
         )
-    )
+
+        change_5m = (
+
+            (
+                last_price
+                - price_5m
+            )
+            / price_5m
+            * 100
+
+        )
+
+    else:
+
+        change_5m = 0
 
 
-    last_data_tunis = (
-        last_data_time
-        .tz_convert(TUNIS_TZ)
-    )
+    if len(df) >= 13:
+
+        price_1h = float(
+            df["Close"].iloc[-13]
+        )
+
+        change_1h = (
+
+            (
+                last_price
+                - price_1h
+            )
+            / price_1h
+            * 100
+
+        )
+
+    else:
+
+        change_1h = 0
+
+
+    if len(df) >= 289:
+
+        price_24h = float(
+            df["Close"].iloc[-289]
+        )
+
+        change_24h = (
+
+            (
+                last_price
+                - price_24h
+            )
+            / price_24h
+            * 100
+
+        )
+
+    else:
+
+        change_24h = 0
+
+
+    # ========================================================
+    # VOLUME
+    # ========================================================
+
+    if len(df) >= 288:
+
+        volume_24h = float(
+
+            df["Volume"]
+            .iloc[-288:]
+            .sum()
+
+        )
+
+    else:
+
+        volume_24h = float(
+            df["Volume"].sum()
+        )
 
 
     # ========================================================
     # INDICATEURS
     # ========================================================
 
-    current_rsi = float(
+    last_rsi = float(
         df["RSI"].iloc[-1]
     )
 
+    last_volatility = float(
+        df["Volatility"].iloc[-1]
+    )
 
-    current_sma20 = float(
+    sma20 = float(
         df["SMA_20"].iloc[-1]
     )
 
-
-    current_sma50 = float(
+    sma50 = float(
         df["SMA_50"].iloc[-1]
     )
 
 
-    current_volatility = float(
-        df["Volatility"].iloc[-1]
-    )
-
-
     # ========================================================
-    # SUPPORTS / RESISTANCES
+    # SUPPORTS / RÉSISTANCES
     # ========================================================
 
     supports, resistances = (
-        detect_supports_resistances(df)
-    )
-
-
-    # ========================================================
-    # PREDICTION ML
-    # ========================================================
-
-    features_scaled = (
-        scaler.transform(
-            features.iloc[-1:].values
+        detect_supports_resistances(
+            df
         )
     )
 
 
-    preds = model.predict(
-        features_scaled
-    )[0]
+    # ========================================================
+    # PRÉDICTION
+    # ========================================================
 
+    try:
+
+        X = features.iloc[
+            -1:
+        ].values
+
+
+        expected_features = getattr(
+
+            scaler,
+
+            "n_features_in_",
+
+            None
+
+        )
+
+
+        if (
+
+            expected_features is not None
+            and X.shape[1]
+            != expected_features
+
+        ):
+
+            st.error(
+
+                f"❌ Le scaler attend "
+                f"{expected_features} variables "
+                f"mais {X.shape[1]} sont fournies."
+
+            )
+
+            st.stop()
+
+
+        X_scaled = scaler.transform(
+            X
+        )
+
+
+        raw_prediction = model.predict(
+            X_scaled
+        )
+
+
+        preds = np.asarray(
+            raw_prediction
+        )
+
+
+        if preds.ndim == 2:
+
+            preds = preds[0]
+
+
+        preds = preds.astype(
+            float
+        )
+
+
+    except Exception as e:
+
+        st.error(
+            "❌ Erreur pendant la prédiction."
+        )
+
+        st.exception(e)
+
+        st.stop()
+
+
+    # ========================================================
+    # HORIZON
+    # ========================================================
 
     future_times = [
 
-        df.index[-1]
-        +
-        timedelta(
+        last_time
+        + timedelta(
             minutes=5 * (i + 1)
         )
 
-        for i in range(12)
+        for i in range(
+            len(preds)
+        )
+
     ]
 
 
@@ -1298,62 +1510,74 @@ if df is not None and not df.empty:
     )
 
 
-    pct_change = (
-        future_price -
-        last_price
-    ) / last_price
-
-
     # ========================================================
     # SIGNAL
     # ========================================================
 
-    signal, score, strength = (
-        calculate_signal(
-            last_price,
-            future_price,
-            current_rsi,
-            current_sma20,
-            current_sma50,
-            supports,
-            resistances
-        )
+    analysis = calculate_signal(
+
+        last_price,
+
+        future_price,
+
+        last_rsi,
+
+        sma20,
+
+        sma50,
+
+        supports,
+
+        resistances
+
+    )
+
+
+    score = analysis["score"]
+
+    signal = analysis["signal"]
+
+    strength = analysis["strength"]
+
+    predicted_change = (
+        analysis["predicted_change"]
     )
 
 
     # ========================================================
-    # SAUVEGARDE PREDICTION
+    # SAUVEGARDE PRÉDICTION 1H
     # ========================================================
-
-    prediction_time = (
-        df.index[-1]
-    )
-
 
     target_time = (
-        df.index[-1]
-        +
-        timedelta(
-            hours=1
+        last_time
+        + timedelta(
+            minutes=PREDICTION_HORIZON_MINUTES
         )
     )
 
 
     save_prediction(
-        prediction_time,
-        target_time,
-        last_price,
-        future_price,
-        signal,
-        score
+
+        prediction_time=last_time,
+
+        target_time=target_time,
+
+        current_price=last_price,
+
+        predicted_price=future_price,
+
+        signal=signal,
+
+        score=score
+
     )
 
 
     # ========================================================
-    # EVALUATION HISTORIQUE
+    # ÉVALUATION HISTORIQUE
     # ========================================================
 
-    history = load_prediction_history()
+    history = load_history()
 
 
     history = evaluate_predictions(
@@ -1362,82 +1586,548 @@ if df is not None and not df.empty:
     )
 
 
-    # ========================================================
-    # TITRE SIGNAL
-    # ========================================================
-
-    st.markdown(
-        f"""
-        ## Signal : {signal}
-
-        ### Variation prédite à 1h :
-        **{pct_change * 100:.2f}%**
-
-        **Score : {score}/100 — Force : {strength}**
-        """
+    metrics = calculate_metrics(
+        history
     )
 
 
     # ========================================================
-    # METRICS PRINCIPALES
+    # ÉTAT
     # ========================================================
 
-    col1, col2, col3, col4, col5 = (
-        st.columns(5)
-    )
-
-
-    col1.metric(
-        "💰 BTC",
-        f"${last_price:,.2f}"
-    )
-
-
-    col2.metric(
-        "📊 RSI",
-        f"{current_rsi:.2f}"
-    )
-
-
-    col3.metric(
-        "📈 Volatilité",
-        f"{current_volatility:.4f}"
-    )
-
-
-    col4.metric(
-        "🤖 Prévision 1h",
-        f"${future_price:,.2f}",
-        f"{pct_change * 100:.2f}%"
-    )
-
-
-    col5.metric(
-        "⏰ Heure actuelle",
-        current_time.strftime(
-            "%H:%M:%S"
-        )
+    st.success(
+        "🟢 Données BTC disponibles"
     )
 
 
     st.caption(
-        "Dernière bougie BTC disponible : "
-        +
-        last_data_tunis.strftime(
+
+        "🕐 Heure Tunisie : "
+        + current_time.strftime(
             "%d/%m/%Y %H:%M:%S"
         )
-        +
-        " — Heure Tunisie"
+
+    )
+
+
+    st.caption(
+
+        "📡 Dernière bougie : "
+        + last_time.strftime(
+            "%d/%m/%Y %H:%M:%S"
+        )
+
     )
 
 
     # ========================================================
-    # GRAPHIQUE PRINCIPAL
+    # MARCHÉ
     # ========================================================
+
+    st.subheader(
+        "📊 Marché BTC"
+    )
+
+
+    c1, c2, c3, c4 = (
+        st.columns(4)
+    )
+
+
+    c1.metric(
+
+        "💰 Prix BTC",
+
+        f"${last_price:,.2f}",
+
+        f"{change_5m:+.2f}% / 5m"
+
+    )
+
+
+    c2.metric(
+
+        "📈 Variation 1h",
+
+        f"{change_1h:+.2f}%"
+
+    )
+
+
+    c3.metric(
+
+        "📅 Variation 24h",
+
+        f"{change_24h:+.2f}%"
+
+    )
+
+
+    if volume_24h >= 1_000_000_000:
+
+        volume_display = (
+            f"${volume_24h / 1_000_000_000:.2f} Md"
+        )
+
+    elif volume_24h >= 1_000_000:
+
+        volume_display = (
+            f"${volume_24h / 1_000_000:.2f} M"
+        )
+
+    else:
+
+        volume_display = (
+            f"${volume_24h:,.0f}"
+        )
+
+
+    c4.metric(
+
+        "📊 Volume 24h",
+
+        volume_display
+
+    )
+
+
+    # ========================================================
+    # INDICATEURS
+    # ========================================================
+
+    st.subheader(
+        "📈 Indicateurs techniques"
+    )
+
+
+    i1, i2, i3, i4 = (
+        st.columns(4)
+    )
+
+
+    i1.metric(
+        "RSI",
+        f"{last_rsi:.2f}"
+    )
+
+
+    i2.metric(
+        "Volatilité",
+        f"{last_volatility:.4f}"
+    )
+
+
+    i3.metric(
+        "SMA 20",
+        f"${sma20:,.2f}"
+    )
+
+
+    i4.metric(
+        "SMA 50",
+        f"${sma50:,.2f}"
+    )
+
+
+    # ========================================================
+    # TENDANCE
+    # ========================================================
+
+    if (
+        last_price > sma20
+        and sma20 > sma50
+    ):
+
+        trend = "📈 HAUSSIÈRE"
+
+    elif (
+        last_price < sma20
+        and sma20 < sma50
+    ):
+
+        trend = "📉 BAISSIÈRE"
+
+    else:
+
+        trend = "↔️ NEUTRE"
+
+
+    st.info(
+        f"**Tendance : {trend}**"
+    )
+
+
+    # ========================================================
+    # SIGNAL
+    # ========================================================
+
+    st.subheader(
+        "🤖 Signal intelligent"
+    )
+
+
+    s1, s2, s3, s4 = (
+        st.columns(4)
+    )
+
+
+    s1.metric(
+        "Signal",
+        signal
+    )
+
+
+    s2.metric(
+        "Score",
+        f"{score:+d} / 100"
+    )
+
+
+    s3.metric(
+        "Force",
+        strength
+    )
+
+
+    s4.metric(
+        "Prévision 1h",
+        f"{predicted_change:+.2f}%"
+    )
+
+
+    # ========================================================
+    # DÉTAIL SIGNAL
+    # ========================================================
+
+    with st.expander(
+        "🔎 Détail du signal"
+    ):
+
+        d1, d2 = (
+            st.columns(2)
+        )
+
+
+        with d1:
+
+            st.write(
+                "🤖 Modèle ML :",
+                analysis["ml_signal"]
+            )
+
+            st.write(
+                "📈 Tendance :",
+                analysis["trend_signal"]
+            )
+
+            st.write(
+                "📊 RSI :",
+                analysis["rsi_signal"]
+            )
+
+
+        with d2:
+
+            st.write(
+                "🟢 Support :",
+                analysis["support_signal"]
+            )
+
+            st.write(
+                "🔴 Résistance :",
+                analysis["resistance_signal"]
+            )
+
+
+        st.caption(
+            "Le score est un indicateur de confluence "
+            "et non une probabilité de réussite."
+        )
+
+
+    # ========================================================
+    # PERFORMANCE
+    # ========================================================
+
+    st.subheader(
+        "🎯 Performance réelle du modèle"
+    )
+
+
+    p1, p2, p3, p4 = (
+        st.columns(4)
+    )
+
+
+    if metrics["n"] > 0:
+
+        p1.metric(
+
+            "🎯 Accuracy directionnelle",
+
+            f"{metrics['accuracy']:.2f}%"
+
+        )
+
+
+        p2.metric(
+
+            "📏 MAE",
+
+            f"${metrics['mae']:,.2f}"
+
+        )
+
+
+        p3.metric(
+
+            "📐 RMSE",
+
+            f"${metrics['rmse']:,.2f}"
+
+        )
+
+
+        p4.metric(
+
+            "📊 Prédictions évaluées",
+
+            str(metrics["n"])
+
+        )
+
+
+    else:
+
+        p1.metric(
+            "Accuracy",
+            "En attente"
+        )
+
+        p2.metric(
+            "MAE",
+            "En attente"
+        )
+
+        p3.metric(
+            "RMSE",
+            "En attente"
+        )
+
+        p4.metric(
+            "Évaluées",
+            "0"
+        )
+
+
+    st.caption(
+
+        "⚠️ Les performances apparaissent progressivement. "
+        "Une prédiction doit attendre son horizon de 1 heure "
+        "avant de pouvoir être comparée au prix réel."
+
+    )
+
+
+    # ========================================================
+    # GRAPHIQUE PRÉDIT VS RÉEL
+    # ========================================================
+
+    evaluated = history[
+        history["actual_price"].notna()
+    ].copy()
+
+
+    if not evaluated.empty:
+
+        st.subheader(
+            "📉 Prix prédit vs prix réel"
+        )
+
+
+        evaluated[
+            "prediction_time"
+        ] = pd.to_datetime(
+            evaluated["prediction_time"]
+        )
+
+
+        evaluated = evaluated.sort_values(
+            "prediction_time"
+        )
+
+
+        fig_perf = go.Figure()
+
+
+        fig_perf.add_trace(
+
+            go.Scatter(
+
+                x=evaluated[
+                    "prediction_time"
+                ],
+
+                y=evaluated[
+                    "predicted_price"
+                ],
+
+                mode="lines+markers",
+
+                name="Prix prédit"
+
+            )
+
+        )
+
+
+        fig_perf.add_trace(
+
+            go.Scatter(
+
+                x=evaluated[
+                    "prediction_time"
+                ],
+
+                y=evaluated[
+                    "actual_price"
+                ],
+
+                mode="lines+markers",
+
+                name="Prix réel"
+
+            )
+
+        )
+
+
+        fig_perf.update_layout(
+
+            height=500,
+
+            template="plotly_dark",
+
+            xaxis_title="Temps",
+
+            yaxis_title="Prix BTC",
+
+            hovermode="x unified"
+
+        )
+
+
+        st.plotly_chart(
+
+            fig_perf,
+
+            use_container_width=True
+
+        )
+
+
+    else:
+
+        st.info(
+
+            "📊 Le graphique apparaîtra "
+            "après les premières prédictions évaluées."
+
+        )
+
+
+    # ========================================================
+    # HISTORIQUE DES PRÉDICTIONS
+    # ========================================================
+
+    st.subheader(
+        "📝 Historique des prédictions"
+    )
+
+
+    if not history.empty:
+
+        display_history = history.copy()
+
+
+        display_history = (
+            display_history
+            .sort_values(
+                "prediction_time",
+                ascending=False
+            )
+            .head(30)
+        )
+
+
+        display_columns = [
+
+            "prediction_time",
+
+            "target_time",
+
+            "current_price",
+
+            "predicted_price",
+
+            "actual_price",
+
+            "signal",
+
+            "score",
+
+            "predicted_change_pct",
+
+            "actual_change_pct",
+
+            "absolute_error",
+
+            "direction_correct"
+
+        ]
+
+
+        display_columns = [
+
+            col
+            for col in display_columns
+
+            if col in display_history.columns
+
+        ]
+
+
+        st.dataframe(
+
+            display_history[
+                display_columns
+            ],
+
+            use_container_width=True
+
+        )
+
+
+    else:
+
+        st.info(
+            "Aucune prédiction enregistrée."
+        )
+
+
+    # ========================================================
+    # GRAPHIQUE BTC
+    # ========================================================
+
+    st.subheader(
+        "📊 Analyse BTC"
+    )
+
 
     fig = make_subplots(
 
-        rows=2,
+        rows=3,
+
         cols=1,
 
         shared_xaxes=True,
@@ -1445,140 +2135,170 @@ if df is not None and not df.empty:
         vertical_spacing=0.03,
 
         row_heights=[
-            0.70,
-            0.30
+            0.60,
+            0.20,
+            0.20
         ]
+
     )
 
 
-    # --------------------------------------------------------
-    # Chandeliers
-    # --------------------------------------------------------
-
-    recent = df.tail(100)
-
+    # ========================================================
+    # CANDLE
+    # ========================================================
 
     fig.add_trace(
 
         go.Candlestick(
 
-            x=recent.index,
+            x=df.index[-100:],
 
-            open=recent["Open"],
+            open=df[
+                "Open"
+            ].iloc[-100:],
 
-            high=recent["High"],
+            high=df[
+                "High"
+            ].iloc[-100:],
 
-            low=recent["Low"],
+            low=df[
+                "Low"
+            ].iloc[-100:],
 
-            close=recent["Close"],
+            close=df[
+                "Close"
+            ].iloc[-100:],
 
             name="BTC"
+
         ),
 
         row=1,
+
         col=1
+
     )
 
 
-    # --------------------------------------------------------
+    # ========================================================
     # SMA20
-    # --------------------------------------------------------
+    # ========================================================
 
     fig.add_trace(
 
         go.Scatter(
 
-            x=recent.index,
+            x=df.index[-100:],
 
-            y=recent["SMA_20"],
+            y=df[
+                "SMA_20"
+            ].iloc[-100:],
 
             mode="lines",
 
             name="SMA 20",
 
             line=dict(
+
+                color="orange",
+
                 width=2
+
             )
+
         ),
 
         row=1,
+
         col=1
+
     )
 
 
-    # --------------------------------------------------------
+    # ========================================================
     # SMA50
-    # --------------------------------------------------------
+    # ========================================================
 
     fig.add_trace(
 
         go.Scatter(
 
-            x=recent.index,
+            x=df.index[-100:],
 
-            y=recent["SMA_50"],
+            y=df[
+                "SMA_50"
+            ].iloc[-100:],
 
             mode="lines",
 
             name="SMA 50",
 
             line=dict(
+
+                color="blue",
+
                 width=2
+
             )
+
         ),
 
         row=1,
+
         col=1
+
     )
 
 
-    # --------------------------------------------------------
-    # Supports
-    # --------------------------------------------------------
+    # ========================================================
+    # SUPPORTS
+    # ========================================================
 
     for support in supports:
 
         fig.add_hline(
 
-            y=support,
+            y=float(support),
 
             line_dash="dash",
 
-            opacity=0.6,
+            line_color="green",
 
-            annotation_text="Support",
+            opacity=0.6,
 
             row=1,
 
             col=1
+
         )
 
 
-    # --------------------------------------------------------
-    # Resistances
-    # --------------------------------------------------------
+    # ========================================================
+    # RÉSISTANCES
+    # ========================================================
 
     for resistance in resistances:
 
         fig.add_hline(
 
-            y=resistance,
+            y=float(resistance),
 
             line_dash="dash",
 
-            opacity=0.6,
+            line_color="red",
 
-            annotation_text="Resistance",
+            opacity=0.6,
 
             row=1,
 
             col=1
+
         )
 
 
-    # --------------------------------------------------------
-    # Prediction
-    # --------------------------------------------------------
+    # ========================================================
+    # PRÉDICTION
+    # ========================================================
 
     fig.add_trace(
 
@@ -1590,38 +2310,59 @@ if df is not None and not df.empty:
 
             mode="lines+markers",
 
-            name="🤖 Prediction ML",
+            name="Prédiction ML",
 
             line=dict(
+
+                color="cyan",
+
                 width=3,
+
                 dash="dot"
+
             )
+
         ),
 
         row=1,
+
         col=1
+
     )
 
 
-    # --------------------------------------------------------
+    # ========================================================
     # RSI
-    # --------------------------------------------------------
+    # ========================================================
 
     fig.add_trace(
 
         go.Scatter(
 
-            x=recent.index,
+            x=df.index[-100:],
 
-            y=recent["RSI"],
+            y=df[
+                "RSI"
+            ].iloc[-100:],
 
             mode="lines",
 
-            name="RSI"
+            name="RSI",
+
+            line=dict(
+
+                color="purple",
+
+                width=2
+
+            )
+
         ),
 
         row=2,
+
         col=1
+
     )
 
 
@@ -1631,11 +2372,14 @@ if df is not None and not df.empty:
 
         line_dash="dash",
 
+        line_color="red",
+
         opacity=0.5,
 
         row=2,
 
         col=1
+
     )
 
 
@@ -1645,678 +2389,217 @@ if df is not None and not df.empty:
 
         line_dash="dash",
 
+        line_color="green",
+
         opacity=0.5,
 
         row=2,
 
         col=1
+
     )
 
 
+    # ========================================================
+    # VOLUME
+    # ========================================================
+
+    fig.add_trace(
+
+        go.Bar(
+
+            x=df.index[-100:],
+
+            y=df[
+                "Volume"
+            ].iloc[-100:],
+
+            name="Volume",
+
+            opacity=0.5
+
+        ),
+
+        row=3,
+
+        col=1
+
+    )
+
+
+    # ========================================================
+    # LAYOUT
+    # ========================================================
+
     fig.update_layout(
 
-        height=750,
+        height=850,
 
         template="plotly_dark",
 
         xaxis_rangeslider_visible=False,
 
-        hovermode="x unified"
-    )
-
-
-    st.plotly_chart(
-        fig,
-        use_container_width=True
-    )
-
-
-    # ========================================================
-    # PREDICTIONS 1H
-    # ========================================================
-
-    st.subheader(
-        "🤖 Prédictions des 12 prochaines bougies"
-    )
-
-
-    prediction_table = pd.DataFrame({
-
-        "Heure": [
-            t.tz_convert(
-                TUNIS_TZ
-            ).strftime("%H:%M")
-            for t in future_times
-        ],
-
-        "Prix prédit ($)": [
-            round(
-                float(p),
-                2
-            )
-            for p in preds
-        ],
-
-        "Variation vs actuel (%)": [
-
-            round(
-                (
-                    float(p) -
-                    last_price
-                )
-                /
-                last_price
-                *
-                100,
-
-                3
-            )
-
-            for p in preds
-        ]
-    })
-
-
-    st.dataframe(
-        prediction_table,
-        use_container_width=True,
-        hide_index=True
-    )
-
-
-    # ========================================================
-    # BACKTEST
-    # ========================================================
-
-    st.markdown("---")
-
-    st.header(
-        "📊 Backtest de la stratégie"
-    )
-
-
-    st.info(
-        "Le backtest simule les signaux sur les données "
-        "historiques disponibles. Il inclut des frais de "
-        "transaction simulés et ne représente pas des "
-        "résultats futurs garantis."
-    )
-
-
-    # ========================================================
-    # PARAMETRES BACKTEST
-    # ========================================================
-
-    col1, col2, col3 = st.columns(3)
-
-
-    initial_capital = col1.number_input(
-
-        "💰 Capital initial",
-
-        min_value=100.0,
-
-        max_value=1000000.0,
-
-        value=10000.0,
-
-        step=1000.0
-    )
-
-
-    threshold_percent = col2.number_input(
-
-        "🎯 Seuil signal (%)",
-
-        min_value=0.1,
-
-        max_value=10.0,
-
-        value=0.3,
-
-        step=0.1
-    )
-
-
-    fee_percent = col3.number_input(
-
-        "💸 Frais par transaction (%)",
-
-        min_value=0.0,
-
-        max_value=2.0,
-
-        value=0.1,
-
-        step=0.05
-    )
-
-
-    # ========================================================
-    # EXECUTION BACKTEST
-    # ========================================================
-
-    backtest_data, trades_df, stats = (
-        run_backtest(
-
-            df,
-
-            model,
-
-            scaler,
-
-            initial_capital=
-
-                initial_capital,
-
-            threshold=
-
-                threshold_percent / 100,
-
-            fee=
-
-                fee_percent / 100
-        )
-    )
-
-
-    # ========================================================
-    # RESULTATS
-    # ========================================================
-
-    st.subheader(
-        "📌 Résultats"
-    )
-
-
-    b1, b2, b3, b4 = st.columns(4)
-
-
-    b1.metric(
-
-        "Capital final",
-
-        f"${stats['Capital final']:,.2f}",
-
-        f"{stats['Rendement stratégie'] * 100:.2f}%"
-    )
-
-
-    b2.metric(
-
-        "Buy & Hold",
-
-        f"${stats['Capital Buy & Hold']:,.2f}",
-
-        f"{stats['Rendement Buy & Hold'] * 100:.2f}%"
-    )
-
-
-    b3.metric(
-
-        "Win Rate",
-
-        f"{stats['Win Rate'] * 100:.2f}%"
-    )
-
-
-    b4.metric(
-
-        "Trades",
-
-        f"{stats['Nombre de trades']}"
-    )
-
-
-    b5, b6, b7 = st.columns(3)
-
-
-    b5.metric(
-
-        "📉 Drawdown maximal",
-
-        f"{stats['Drawdown maximal'] * 100:.2f}%"
-    )
-
-
-    b6.metric(
-
-        "📐 Sharpe Ratio",
-
-        f"{stats['Sharpe']:.2f}"
-    )
-
-
-    b7.metric(
-
-        "💵 Capital initial",
-
-        f"${stats['Capital initial']:,.2f}"
-    )
-
-
-    # ========================================================
-    # GRAPHIQUE EQUITY CURVE
-    # ========================================================
-
-    st.subheader(
-        "📈 Évolution du capital"
-    )
-
-
-    equity_fig = go.Figure()
-
-
-    equity_fig.add_trace(
-
-        go.Scatter(
-
-            x=backtest_data.index,
-
-            y=backtest_data[
-                "StrategyEquity"
-            ],
-
-            mode="lines",
-
-            name="🤖 Stratégie"
-        )
-    )
-
-
-    equity_fig.add_trace(
-
-        go.Scatter(
-
-            x=backtest_data.index,
-
-            y=backtest_data[
-                "BuyHoldEquity"
-            ],
-
-            mode="lines",
-
-            name="🏦 Buy & Hold"
-        )
-    )
-
-
-    equity_fig.update_layout(
-
-        height=500,
-
-        template="plotly_dark",
-
         hovermode="x unified",
 
-        yaxis_title="Capital ($)",
+        margin=dict(
 
-        xaxis_title="Date"
-    )
+            l=20,
 
+            r=20,
 
-    st.plotly_chart(
+            t=40,
 
-        equity_fig,
+            b=20
 
-        use_container_width=True
-    )
-
-
-    # ========================================================
-    # DRAWDOWN
-    # ========================================================
-
-    st.subheader(
-        "📉 Drawdown"
-    )
-
-
-    drawdown_fig = go.Figure()
-
-
-    drawdown_fig.add_trace(
-
-        go.Scatter(
-
-            x=backtest_data.index,
-
-            y=backtest_data[
-                "Drawdown"
-            ] * 100,
-
-            mode="lines",
-
-            name="Drawdown"
         )
-    )
 
-
-    drawdown_fig.update_layout(
-
-        height=350,
-
-        template="plotly_dark",
-
-        yaxis_title="Drawdown (%)",
-
-        xaxis_title="Date"
     )
 
 
     st.plotly_chart(
 
-        drawdown_fig,
+        fig,
 
         use_container_width=True
+
     )
 
 
     # ========================================================
-    # HISTORIQUE DES TRADES
+    # PRÉDICTIONS FUTURES
     # ========================================================
 
-    st.subheader(
-        "📋 Historique des trades"
-    )
+    with st.expander(
+        "🔮 Détails des prédictions futures"
+    ):
 
 
-    if not trades_df.empty:
+        prediction_table = pd.DataFrame({
 
-        display_trades = trades_df.copy()
+            "Horizon": [
 
+                f"+{5 * (i + 1)} min"
 
-        for col in [
-            "Prix entrée",
-            "Prix sortie"
-        ]:
+                for i in range(
+                    len(preds)
+                )
 
-            display_trades[col] = (
-                display_trades[col]
-                .round(2)
-            )
+            ],
 
+            "Heure": [
 
-        display_trades[
-            "Rendement %"
-        ] = display_trades[
-            "Rendement %"
-        ].round(2)
+                t.strftime(
+                    "%H:%M"
+                )
+
+                for t in future_times
+
+            ],
+
+            "Prix prévu": [
+
+                f"${float(p):,.2f}"
+
+                for p in preds
+
+            ],
+
+            "Variation": [
+
+                f"{(
+                    (
+                        float(p)
+                        - last_price
+                    )
+                    / last_price
+                    * 100
+                ):+.2f}%"
+
+                for p in preds
+
+            ]
+
+        })
 
 
         st.dataframe(
 
-            display_trades,
+            prediction_table,
 
-            use_container_width=True,
+            use_container_width=True
 
-            hide_index=True
-        )
-
-    else:
-
-        st.warning(
-            "Aucun trade détecté avec "
-            "les paramètres actuels."
         )
 
 
     # ========================================================
-    # EVALUATION DU MODELE ML
-    # ========================================================
-
-    st.markdown("---")
-
-    st.header(
-        "🧠 Évaluation du modèle ML"
-    )
-
-
-    if not history.empty:
-
-        evaluated = history[
-            history[
-                "actual_price"
-            ].notna()
-        ].copy()
-
-
-        if not evaluated.empty:
-
-            # ------------------------------------------------
-            # Direction Accuracy
-            # ------------------------------------------------
-
-            direction_accuracy = (
-                evaluated[
-                    "direction_correct"
-                ]
-                .astype(bool)
-                .mean()
-            )
-
-
-            # ------------------------------------------------
-            # MAE
-            # ------------------------------------------------
-
-            mae = (
-                evaluated[
-                    "absolute_error"
-                ]
-                .mean()
-            )
-
-
-            # ------------------------------------------------
-            # RMSE
-            # ------------------------------------------------
-
-            rmse = math.sqrt(
-
-                (
-                    evaluated["error"] ** 2
-                ).mean()
-            )
-
-
-            # ------------------------------------------------
-            # Mean Error
-            # ------------------------------------------------
-
-            mean_error = (
-                evaluated["error"]
-                .mean()
-            )
-
-
-            c1, c2, c3, c4 = (
-                st.columns(4)
-            )
-
-
-            c1.metric(
-
-                "🎯 Direction Accuracy",
-
-                f"{direction_accuracy * 100:.2f}%"
-            )
-
-
-            c2.metric(
-
-                "MAE",
-
-                f"${mae:,.2f}"
-            )
-
-
-            c3.metric(
-
-                "RMSE",
-
-                f"${rmse:,.2f}"
-            )
-
-
-            c4.metric(
-
-                "Prédictions évaluées",
-
-                len(evaluated)
-            )
-
-
-            # ------------------------------------------------
-            # Prediction vs Actual
-            # ------------------------------------------------
-
-            st.subheader(
-                "📊 Prédiction vs prix réel"
-            )
-
-
-            history_chart = go.Figure()
-
-
-            history_chart.add_trace(
-
-                go.Scatter(
-
-                    x=evaluated[
-                        "target_time"
-                    ],
-
-                    y=evaluated[
-                        "predicted_price"
-                    ],
-
-                    mode="lines+markers",
-
-                    name="Prix prédit"
-                )
-            )
-
-
-            history_chart.add_trace(
-
-                go.Scatter(
-
-                    x=evaluated[
-                        "target_time"
-                    ],
-
-                    y=evaluated[
-                        "actual_price"
-                    ],
-
-                    mode="lines+markers",
-
-                    name="Prix réel"
-                )
-            )
-
-
-            history_chart.update_layout(
-
-                height=450,
-
-                template="plotly_dark",
-
-                hovermode="x unified",
-
-                yaxis_title="Prix BTC ($)",
-
-                xaxis_title="Temps"
-            )
-
-
-            st.plotly_chart(
-
-                history_chart,
-
-                use_container_width=True
-            )
-
-
-        else:
-
-            st.info(
-                "⏳ Les premières prédictions "
-                "doivent atteindre leur horizon "
-                "de 1h avant d'être évaluées."
-            )
-
-
-    # ========================================================
-    # DETAILS
+    # INFORMATIONS
     # ========================================================
 
     with st.expander(
-        "🔍 Voir les supports et résistances"
+        "ℹ️ Informations techniques"
     ):
 
-        col1, col2 = st.columns(2)
+        st.write(
+            "Source : Yahoo Finance"
+        )
 
+        st.write(
+            "Actif : BTC-USD"
+        )
 
-        with col1:
+        st.write(
+            "Timeframe : 5 minutes"
+        )
 
-            st.write(
-                "🟢 Supports"
-            )
+        st.write(
+            "Période : 7 jours"
+        )
 
-            if supports:
+        st.write(
+            "Horizon d'évaluation : 1 heure"
+        )
 
-                for s in supports:
+        st.write(
+            "Nombre de bougies :",
+            len(df)
+        )
 
-                    st.write(
-                        f"${s:,.2f}"
-                    )
+        st.write(
+            "Nombre de prédictions enregistrées :",
+            len(history)
+        )
 
-            else:
+        st.write(
+            "Nombre de prédictions évaluées :",
+            metrics["n"]
+        )
 
-                st.write(
-                    "Aucun support détecté."
-                )
-
-
-        with col2:
-
-            st.write(
-                "🔴 Résistances"
-            )
-
-            if resistances:
-
-                for r in resistances:
-
-                    st.write(
-                        f"${r:,.2f}"
-                    )
-
-            else:
-
-                st.write(
-                    "Aucune résistance détectée."
-                )
-
-
-    # ========================================================
-    # FOOTER
-    # ========================================================
-
-    st.markdown("---")
-
-    st.caption(
-        "BTC Algo Trading V2.4 | "
-        "Données Yahoo Finance | "
-        "Modèle Random Forest | "
-        "Backtest historique"
-    )
+        st.write(
+            "Fichier historique :",
+            HISTORY_FILE
+        )
 
 
 else:
 
     st.warning(
-        "⏳ Attente des données BTC..."
+        "⏳ Aucune donnée BTC disponible."
     )
+
+
+# ============================================================
+# RAFRAÎCHISSEMENT
+# ============================================================
+
+st.markdown(
+
+    f"""
+    <meta
+        http-equiv="refresh"
+        content="{REFRESH_SECONDS}"
+    >
+    """,
+
+    unsafe_allow_html=True
+
+)
