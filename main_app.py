@@ -5,7 +5,8 @@ import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from scipy.signal import argrelextrema
-from datetime import timedelta
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 import joblib
 
 
@@ -23,6 +24,13 @@ st.title("🤖 Trading BTC - Prédiction 1h")
 
 
 # ============================================================
+# FUSEAU HORAIRE
+# ============================================================
+
+TUNIS_TZ = ZoneInfo("Africa/Tunis")
+
+
+# ============================================================
 # CHARGEMENT DU MODÈLE
 # ============================================================
 
@@ -30,6 +38,7 @@ st.title("🤖 Trading BTC - Prédiction 1h")
 def load_model():
 
     try:
+
         model = joblib.load("btc_multioutput_rf.pkl")
         scaler = joblib.load("scaler.pkl")
 
@@ -49,7 +58,6 @@ def load_model():
 model, scaler = load_model()
 
 
-# Arrêt si modèle non chargé
 if model is None or scaler is None:
     st.stop()
 
@@ -58,10 +66,14 @@ if model is None or scaler is None:
 # RÉCUPÉRATION DES DONNÉES BTC
 # ============================================================
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=60)
 def fetch_data():
 
     try:
+
+        # ----------------------------------------------------
+        # Télécharger les données BTC
+        # ----------------------------------------------------
 
         df = yf.download(
             "BTC-USD",
@@ -71,35 +83,28 @@ def fetch_data():
             auto_adjust=False
         )
 
+
         # ----------------------------------------------------
-        # Vérifier si les données existent
+        # Vérifier les données
         # ----------------------------------------------------
 
         if df is None or df.empty:
+
             return None, None
 
 
-        # ----------------------------------------------------
-        # CORRECTION IMPORTANTE YFINANCE
-        # ----------------------------------------------------
-        # Certaines versions de yfinance retournent des
-        # colonnes MultiIndex.
-        #
-        # Exemple :
-        # ('Close', 'BTC-USD')
-        #
-        # On transforme cela en :
-        # Close
-        # ----------------------------------------------------
+        # ====================================================
+        # CORRECTION YFINANCE MULTIINDEX
+        # ====================================================
 
         if isinstance(df.columns, pd.MultiIndex):
 
             df.columns = df.columns.get_level_values(0)
 
 
-        # ----------------------------------------------------
-        # Garder uniquement les colonnes nécessaires
-        # ----------------------------------------------------
+        # ====================================================
+        # VÉRIFICATION DES COLONNES
+        # ====================================================
 
         required_columns = [
             "Open",
@@ -110,21 +115,40 @@ def fetch_data():
         ]
 
         missing_columns = [
-            col for col in required_columns
+            col
+            for col in required_columns
             if col not in df.columns
         ]
 
         if missing_columns:
 
             raise ValueError(
-                f"Colonnes manquantes dans les données : "
-                f"{missing_columns}"
+                f"Colonnes manquantes : {missing_columns}"
             )
 
 
-        # ----------------------------------------------------
-        # Supprimer les doublons
-        # ----------------------------------------------------
+        # ====================================================
+        # CORRECTION DU FUSEAU HORAIRE
+        # ====================================================
+
+        if df.index.tz is not None:
+
+            df.index = df.index.tz_convert(
+                "Africa/Tunis"
+            )
+
+        else:
+
+            df.index = df.index.tz_localize(
+                "UTC"
+            ).tz_convert(
+                "Africa/Tunis"
+            )
+
+
+        # ====================================================
+        # SUPPRIMER LES DOUBLONS
+        # ====================================================
 
         df = df[
             ~df.index.duplicated(
@@ -133,9 +157,16 @@ def fetch_data():
         ]
 
 
-        # ----------------------------------------------------
-        # Fréquence 5 minutes
-        # ----------------------------------------------------
+        # ====================================================
+        # TRIER PAR DATE
+        # ====================================================
+
+        df = df.sort_index()
+
+
+        # ====================================================
+        # FRÉQUENCE 5 MINUTES
+        # ====================================================
 
         df = df.asfreq(
             "5min",
@@ -144,13 +175,8 @@ def fetch_data():
 
 
         # ====================================================
-        # CALCUL DES INDICATEURS
-        # ====================================================
-
-
-        # ----------------------------------------------------
         # RSI
-        # ----------------------------------------------------
+        # ====================================================
 
         delta = df["Close"].diff()
 
@@ -173,15 +199,14 @@ def fetch_data():
         df["RSI"] = (
             100
             - (
-                100
-                / (1 + rs)
+                100 / (1 + rs)
             )
         )
 
 
-        # ----------------------------------------------------
-        # Moyennes mobiles
-        # ----------------------------------------------------
+        # ====================================================
+        # MOYENNES MOBILES
+        # ====================================================
 
         df["SMA_5"] = (
             df["Close"]
@@ -202,9 +227,9 @@ def fetch_data():
         )
 
 
-        # ----------------------------------------------------
-        # Rendements
-        # ----------------------------------------------------
+        # ====================================================
+        # RENDEMENTS
+        # ====================================================
 
         df["Returns"] = (
             df["Close"]
@@ -212,9 +237,9 @@ def fetch_data():
         )
 
 
-        # ----------------------------------------------------
-        # Volatilité
-        # ----------------------------------------------------
+        # ====================================================
+        # VOLATILITÉ
+        # ====================================================
 
         df["Volatility"] = (
             df["Returns"]
@@ -223,9 +248,9 @@ def fetch_data():
         )
 
 
-        # ----------------------------------------------------
-        # Lags du prix
-        # ----------------------------------------------------
+        # ====================================================
+        # LAGS
+        # ====================================================
 
         df["Close_lag1"] = (
             df["Close"]
@@ -243,9 +268,9 @@ def fetch_data():
         )
 
 
-        # ----------------------------------------------------
-        # Ratio High / Low
-        # ----------------------------------------------------
+        # ====================================================
+        # HIGH / LOW
+        # ====================================================
 
         df["High_low_ratio"] = (
             df["High"]
@@ -253,9 +278,9 @@ def fetch_data():
         )
 
 
-        # ----------------------------------------------------
-        # Supprimer les NaN
-        # ----------------------------------------------------
+        # ====================================================
+        # SUPPRIMER LES NaN
+        # ====================================================
 
         df.dropna(inplace=True)
 
@@ -291,8 +316,8 @@ def fetch_data():
     except Exception as e:
 
         st.error(
-            "❌ Erreur lors de la récupération "
-            "ou du traitement des données BTC."
+            "❌ Erreur pendant la récupération "
+            "des données BTC."
         )
 
         st.exception(e)
@@ -331,6 +356,7 @@ def detect_supports_resistances(
             .tolist()
         )
 
+
         supports = (
             df.iloc[local_min_idx]["Low"]
             .tail(5)
@@ -348,21 +374,21 @@ def detect_supports_resistances(
 
 
 # ============================================================
-# RÉCUPÉRATION DES DONNÉES
+# RÉCUPÉRER LES DONNÉES
 # ============================================================
 
 df, features = fetch_data()
 
 
 # ============================================================
-# AFFICHAGE
+# APPLICATION
 # ============================================================
 
 if df is not None and not df.empty:
 
 
     # ========================================================
-    # DERNIER PRIX
+    # DERNIÈRE DONNÉE
     # ========================================================
 
     last_price = float(
@@ -373,7 +399,16 @@ if df is not None and not df.empty:
 
 
     # ========================================================
-    # DERNIERS INDICATEURS
+    # HEURE ACTUELLE EN TUNISIE
+    # ========================================================
+
+    current_time_tunis = datetime.now(
+        TUNIS_TZ
+    )
+
+
+    # ========================================================
+    # INDICATEURS
     # ========================================================
 
     last_rsi = float(
@@ -392,27 +427,50 @@ if df is not None and not df.empty:
     col1, col2, col3, col4 = st.columns(4)
 
 
+    # Prix
     col1.metric(
         "💰 Prix",
         f"${last_price:,.2f}"
     )
 
 
+    # RSI
     col2.metric(
         "📊 RSI",
         f"{last_rsi:.2f}"
     )
 
 
+    # Volatilité
     col3.metric(
         "📈 Volatilité",
         f"{last_volatility:.4f}"
     )
 
 
+    # Heure actuelle
     col4.metric(
-        "⏰ MAJ",
-        last_time.strftime("%H:%M:%S")
+        "⏰ Heure Tunisie",
+        current_time_tunis.strftime("%H:%M:%S")
+    )
+
+
+    # ========================================================
+    # INFORMATIONS TEMPS
+    # ========================================================
+
+    st.caption(
+        "🕐 Heure actuelle en Tunisie : "
+        + current_time_tunis.strftime(
+            "%d/%m/%Y %H:%M:%S"
+        )
+    )
+
+    st.caption(
+        "📡 Dernière bougie BTC utilisée : "
+        + last_time.strftime(
+            "%d/%m/%Y %H:%M:%S"
+        )
     )
 
 
@@ -426,7 +484,7 @@ if df is not None and not df.empty:
 
 
     # ========================================================
-    # PRÉPARATION DES DONNÉES POUR LE MODÈLE
+    # PRÉPARATION POUR LE MODÈLE
     # ========================================================
 
     try:
@@ -435,7 +493,7 @@ if df is not None and not df.empty:
 
 
         # ----------------------------------------------------
-        # Vérification du nombre de variables
+        # Vérifier le nombre de variables attendu
         # ----------------------------------------------------
 
         expected_features = getattr(
@@ -451,14 +509,17 @@ if df is not None and not df.empty:
         ):
 
             st.error(
-                f"❌ Le scaler attend "
-                f"{expected_features} variables, "
-                f"mais le programme lui en donne "
+                f"❌ Problème avec le scaler : "
+                f"il attend {expected_features} variables "
+                f"mais le programme en fournit "
                 f"{X.shape[1]}."
             )
 
             st.write(
-                "Variables utilisées :",
+                "Variables actuellement utilisées :"
+            )
+
+            st.write(
                 list(features.columns)
             )
 
@@ -466,17 +527,17 @@ if df is not None and not df.empty:
 
 
         # ----------------------------------------------------
-        # Standardisation
+        # Scaling
         # ----------------------------------------------------
 
-        features_scaled = (
-            scaler.transform(X)
+        features_scaled = scaler.transform(
+            X
         )
 
 
-        # ====================================================
+        # ----------------------------------------------------
         # PRÉDICTION
-        # ====================================================
+        # ----------------------------------------------------
 
         raw_prediction = model.predict(
             features_scaled
@@ -489,7 +550,7 @@ if df is not None and not df.empty:
 
 
         # ----------------------------------------------------
-        # Corriger la forme
+        # Corriger la dimension
         # ----------------------------------------------------
 
         if preds.ndim == 2:
@@ -503,19 +564,21 @@ if df is not None and not df.empty:
         else:
 
             raise ValueError(
-                f"Format inattendu des prédictions : "
-                f"{preds.shape}"
+                f"Dimension inattendue : {preds.shape}"
             )
 
 
-        # Conversion en float
+        # ----------------------------------------------------
+        # Convertir en float
+        # ----------------------------------------------------
+
         preds = preds.astype(float)
 
 
     except Exception as e:
 
         st.error(
-            "❌ Erreur lors de la prédiction."
+            "❌ Erreur pendant la prédiction."
         )
 
         st.exception(e)
@@ -524,48 +587,34 @@ if df is not None and not df.empty:
 
 
     # ========================================================
-    # VÉRIFICATION DES PRÉDICTIONS
+    # NOMBRE DE PRÉDICTIONS
     # ========================================================
 
-    number_predictions = len(preds)
+    number_predictions = len(
+        preds
+    )
 
 
-    if number_predictions != 12:
+    # ========================================================
+    # HORAIRES FUTURS
+    # ========================================================
 
-        st.warning(
-            f"⚠️ Le modèle retourne "
-            f"{number_predictions} prédictions "
-            f"au lieu de 12."
+    future_times = [
+
+        last_time
+        + timedelta(
+            minutes=5 * (i + 1)
         )
 
-        # On adapte automatiquement l'horizon
-        # au nombre réel de prédictions
+        for i in range(
+            number_predictions
+        )
 
-        future_times = [
-
-            df.index[-1]
-            + timedelta(
-                minutes=5 * (i + 1)
-            )
-
-            for i in range(number_predictions)
-        ]
-
-    else:
-
-        future_times = [
-
-            df.index[-1]
-            + timedelta(
-                minutes=5 * (i + 1)
-            )
-
-            for i in range(12)
-        ]
+    ]
 
 
     # ========================================================
-    # PRIX PRÉDIT À 1H
+    # PRIX PRÉDIT
     # ========================================================
 
     future_price = float(
@@ -574,7 +623,7 @@ if df is not None and not df.empty:
 
 
     # ========================================================
-    # VARIATION
+    # VARIATION PRÉVUE
     # ========================================================
 
     pct_change = (
@@ -600,7 +649,7 @@ if df is not None and not df.empty:
 
 
     # ========================================================
-    # AFFICHAGE DU SIGNAL
+    # AFFICHAGE SIGNAL
     # ========================================================
 
     st.markdown(
@@ -608,7 +657,7 @@ if df is not None and not df.empty:
     )
 
     st.markdown(
-        f"### Variation prévue : "
+        f"### Variation prévue à 1h : "
         f"{pct_change * 100:.2f}%"
     )
 
@@ -620,6 +669,7 @@ if df is not None and not df.empty:
     fig = make_subplots(
 
         rows=2,
+
         cols=1,
 
         shared_xaxes=True,
@@ -635,7 +685,7 @@ if df is not None and not df.empty:
 
 
     # ========================================================
-    # BOUGIES BTC
+    # BOUGIES
     # ========================================================
 
     fig.add_trace(
@@ -657,6 +707,7 @@ if df is not None and not df.empty:
         ),
 
         row=1,
+
         col=1
 
     )
@@ -666,11 +717,11 @@ if df is not None and not df.empty:
     # SUPPORTS
     # ========================================================
 
-    for s in supports:
+    for support in supports:
 
         fig.add_hline(
 
-            y=float(s),
+            y=float(support),
 
             line_dash="dash",
 
@@ -679,6 +730,7 @@ if df is not None and not df.empty:
             opacity=0.7,
 
             row=1,
+
             col=1
 
         )
@@ -688,11 +740,11 @@ if df is not None and not df.empty:
     # RÉSISTANCES
     # ========================================================
 
-    for r in resistances:
+    for resistance in resistances:
 
         fig.add_hline(
 
-            y=float(r),
+            y=float(resistance),
 
             line_dash="dash",
 
@@ -701,6 +753,7 @@ if df is not None and not df.empty:
             opacity=0.7,
 
             row=1,
+
             col=1
 
         )
@@ -735,6 +788,7 @@ if df is not None and not df.empty:
         ),
 
         row=1,
+
         col=1
 
     )
@@ -765,6 +819,7 @@ if df is not None and not df.empty:
         ),
 
         row=1,
+
         col=1
 
     )
@@ -795,6 +850,7 @@ if df is not None and not df.empty:
         ),
 
         row=2,
+
         col=1
 
     )
@@ -815,6 +871,7 @@ if df is not None and not df.empty:
         opacity=0.5,
 
         row=2,
+
         col=1
 
     )
@@ -835,6 +892,7 @@ if df is not None and not df.empty:
         opacity=0.5,
 
         row=2,
+
         col=1
 
     )
@@ -853,17 +911,22 @@ if df is not None and not df.empty:
         xaxis_rangeslider_visible=False,
 
         margin=dict(
+
             l=20,
+
             r=20,
+
             t=40,
+
             b=20
+
         )
 
     )
 
 
     # ========================================================
-    # AFFICHAGE GRAPHIQUE
+    # AFFICHER LE GRAPHIQUE
     # ========================================================
 
     st.plotly_chart(
@@ -894,14 +957,14 @@ if df is not None and not df.empty:
 
             ],
 
-            "Prix prédit": [
+            "Prix prédit ($)": [
 
                 round(
-                    float(p),
+                    float(price),
                     2
                 )
 
-                for p in preds
+                for price in preds
 
             ]
 
@@ -918,7 +981,7 @@ if df is not None and not df.empty:
 
 
     # ========================================================
-    # INFORMATIONS MODÈLE
+    # INFORMATIONS TECHNIQUES
     # ========================================================
 
     with st.expander(
@@ -939,13 +1002,28 @@ if df is not None and not df.empty:
         )
 
         st.write(
-            "Dimensions des données envoyées au modèle :",
+            "Dimensions de X :",
             X.shape
         )
 
         st.write(
             "Dimensions après scaling :",
             features_scaled.shape
+        )
+
+        st.write(
+            "Prix actuel :",
+            last_price
+        )
+
+        st.write(
+            "Prix prédit à 1h :",
+            future_price
+        )
+
+        st.write(
+            "Variation prévue :",
+            f"{pct_change * 100:.2f}%"
         )
 
 
@@ -962,7 +1040,7 @@ else:
 
 st.markdown(
     """
-    <meta http-equiv="refresh" content="300">
+    <meta http-equiv="refresh" content="60">
     """,
     unsafe_allow_html=True
 )
