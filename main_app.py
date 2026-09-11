@@ -14,6 +14,9 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 import joblib
 import warnings
+import json
+import urllib.parse
+import urllib.request
 
 warnings.filterwarnings("ignore")
 
@@ -50,6 +53,12 @@ BAR_MINUTES = 5
 DEFAULT_THRESHOLD = 0.003
 DEFAULT_FEE = 0.001
 
+# V2.6: Binance Spot public market data as the single reference source
+MARKET_SOURCE = "Binance Spot"
+BINANCE_BASE_URL = "https://api.binance.com"
+BINANCE_SYMBOL = "BTCUSDT"
+BINANCE_INTERVAL = "5m"
+
 
 # ============================================================
 # MODEL
@@ -74,39 +83,77 @@ except Exception as e:
 # DATA + FEATURES
 # ============================================================
 
-@st.cache_data(ttl=60)
-def fetch_data():
-    df = yf.download(
-        "BTC-USD",
-        period="7d",
-        interval="5m",
-        progress=False,
-        auto_adjust=False,
+@st.cache_data(ttl=30, show_spinner=False)
+def fetch_binance_klines(limit=1000):
+    """
+    Public Binance Spot market data.
+    No API key is needed for these public market-data endpoints.
+    """
+    params = urllib.parse.urlencode({
+        "symbol": BINANCE_SYMBOL,
+        "interval": BINANCE_INTERVAL,
+        "limit": limit,
+    })
+    url = f"{BINANCE_BASE_URL}/api/v3/klines?{params}"
+
+    req = urllib.request.Request(
+        url,
+        headers={"User-Agent": "BTC-Algo-Trading-V2.6"},
+        method="GET",
     )
 
-    if df is None or df.empty:
-        return None
+    with urllib.request.urlopen(req, timeout=10) as response:
+        payload = json.loads(response.read().decode("utf-8"))
 
-    # yfinance can return MultiIndex columns
-    if isinstance(df.columns, pd.MultiIndex):
-        df.columns = df.columns.get_level_values(0)
+    if not isinstance(payload, list) or not payload:
+        raise ValueError("Réponse Binance invalide ou vide.")
 
-    required = ["Open", "High", "Low", "Close"]
-    missing = [c for c in required if c not in df.columns]
-    if missing:
-        raise ValueError(f"Colonnes manquantes: {missing}")
+    rows = []
+    for k in payload:
+        rows.append({
+            "Open time": pd.to_datetime(k[0], unit="ms", utc=True),
+            "Open": float(k[1]),
+            "High": float(k[2]),
+            "Low": float(k[3]),
+            "Close": float(k[4]),
+            "Volume": float(k[5]),
+            "Close time": pd.to_datetime(k[6], unit="ms", utc=True),
+            "Quote volume": float(k[7]),
+            "Trades": int(k[8]),
+        })
 
-    df = df[~df.index.duplicated(keep="first")].copy()
-
-    # UTC -> Africa/Tunis
-    if df.index.tz is None:
-        df.index = df.index.tz_localize("UTC")
+    df = pd.DataFrame(rows).set_index("Open time")
     df.index = df.index.tz_convert(TUNIS_TZ)
+    df = df[~df.index.duplicated(keep="last")].sort_index()
 
-    # Keep a regular 5-minute grid
-    df = df.asfreq("5min", method="ffill")
+    return df
 
-    # Features identical to the uploaded application
+
+@st.cache_data(ttl=5, show_spinner=False)
+def fetch_binance_ticker():
+    """
+    Current Binance Spot BTC/USDT ticker.
+    Used separately from the last closed candle so the displayed
+    live price is not confused with the previous 5-minute close.
+    """
+    params = urllib.parse.urlencode({"symbol": BINANCE_SYMBOL})
+    url = f"{BINANCE_BASE_URL}/api/v3/ticker/price?{params}"
+
+    req = urllib.request.Request(
+        url,
+        headers={"User-Agent": "BTC-Algo-Trading-V2.6"},
+        method="GET",
+    )
+
+    with urllib.request.urlopen(req, timeout=10) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+
+    return float(payload["price"])
+
+
+def add_features(df):
+    df = df.copy()
+
     delta = df["Close"].diff()
     gain = delta.where(delta > 0, 0).rolling(14).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
@@ -129,6 +176,12 @@ def fetch_data():
     df = df.replace([np.inf, -np.inf], np.nan).dropna()
 
     return df
+
+
+@st.cache_data(ttl=30, show_spinner=False)
+def fetch_data():
+    df = fetch_binance_klines(limit=1000)
+    return add_features(df)
 
 
 # ============================================================
@@ -157,17 +210,20 @@ def detect_supports_resistances(df, order=5):
 # ============================================================
 
 def predict_current(df):
+    # The ML model receives a COMPLETED 5-minute candle.
+    # This avoids changing features while the current candle is still forming.
     X = df[FEATURES].iloc[-1:].values
     Xs = scaler.transform(X)
     preds = np.asarray(model.predict(Xs)[0], dtype=float)
 
-    last_price = float(df["Close"].iloc[-1])
+    model_reference_price = float(df["Close"].iloc[-1])
+
     future_times = [
         df.index[-1] + timedelta(minutes=BAR_MINUTES * (i + 1))
         for i in range(HORIZONS)
     ]
 
-    return preds, future_times, last_price
+    return preds, future_times, model_reference_price
 
 
 # ============================================================
@@ -568,11 +624,27 @@ if df is None or df.empty:
     st.error("Aucune donnée BTC disponible.")
     st.stop()
 
+try:
+    live_price = fetch_binance_ticker()
+    data_status = "🟢 Connexion Binance OK"
+except Exception as e:
+    live_price = float(df["Close"].iloc[-1])
+    data_status = "🟠 Ticker indisponible — dernière clôture utilisée"
+
 # Current state
-preds, future_times, last_price = predict_current(df)
+preds, future_times, model_reference_price = predict_current(df)
+
+# Important: prediction is relative to the completed candle used by the model.
+# The live market price is displayed separately.
+last_price = live_price
 supports, resistances = detect_supports_resistances(df)
 
-signal, strength, score, pct_change = calculate_signal(df, preds)
+signal, strength, score, pct_change = calculate_signal(
+    df, preds
+)
+
+# Live-vs-model-reference diagnostic
+live_gap = (live_price - model_reference_price) / model_reference_price
 
 last_time = df.index[-1]
 now_tunis = pd.Timestamp.now(tz=TUNIS_TZ)
@@ -591,8 +663,16 @@ c5.metric("Score", f"{score:+d}")
 
 st.info(
     f"Signal: **{signal}** — Force: **{strength}** | "
+    f"Source prix: **{MARKET_SOURCE} / {BINANCE_SYMBOL}** | "
+    f"{data_status} | "
     f"Dernière bougie: **{last_time.strftime('%d/%m/%Y %H:%M:%S')}** "
     f"| Heure locale: **{now_tunis.strftime('%H:%M:%S')}**"
+)
+
+st.caption(
+    f"Prix live Binance: **${live_price:,.2f}** · "
+    f"Clôture 5 min utilisée par le modèle: **${model_reference_price:,.2f}** · "
+    f"Écart live/clôture: **{live_gap:+.3%}**"
 )
 
 # ============================================================
@@ -663,11 +743,18 @@ with tab2:
     st.subheader("Walk-Forward Backtest")
 
     st.warning(
-        "Le script original d'entraînement n'a pas été fourni. "
-        "Le backtest reconstruit donc les targets comme "
-        "Close(t+1) ... Close(t+12), ce qui est déduit de la structure "
-        "du modèle sauvegardé. Les résultats sont une simulation "
-        "historique et ne constituent pas une garantie de performance."
+        "V2.6 utilise Binance Spot BTC/USDT comme source de référence "
+        "unique pour les bougies 5 minutes et le prix live. "
+        "Le modèle reçoit uniquement une bougie 5 minutes clôturée. "
+        "Le backtest reste une simulation historique et ne garantit "
+        "aucune performance future."
+    )
+
+    st.markdown(
+        "**Pourquoi Binance ?** Il n'existe pas un prix BTC mondial unique. "
+        "Un prix affiché par Google, Yahoo ou une plateforme peut différer "
+        "légèrement d'un exchange à l'autre. V2.6 choisit donc une source "
+        "de marché précise et reproductible au lieu de mélanger plusieurs sources."
     )
 
     b1, b2, b3, b4 = st.columns(4)
@@ -947,6 +1034,12 @@ with st.expander("ℹ️ Informations sur le modèle"):
     st.write(
         "**Features utilisées :**",
         FEATURES,
+    )
+    st.write(
+        f"**Source marché V2.6 :** {MARKET_SOURCE} — {BINANCE_SYMBOL}"
+    )
+    st.write(
+        "**Bougies :** Spot 5 minutes ; prix live séparé du dernier close."
     )
 
 st.caption(
