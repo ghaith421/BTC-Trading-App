@@ -21,12 +21,12 @@ import urllib.request
 warnings.filterwarnings("ignore")
 
 # ============================================================
-# BTC ALGO TRADING - V2.5
+# BTC ALGO TRADING - V2.6.1
 # Educational / simulation dashboard - no order execution
 # ============================================================
 
 st.set_page_config(
-    page_title="BTC Algo Trading V2.5",
+    page_title="BTC Algo Trading V2.6.1",
     page_icon="₿",
     layout="wide",
 )
@@ -55,7 +55,14 @@ DEFAULT_FEE = 0.001
 
 # V2.6: Binance Spot public market data as the single reference source
 MARKET_SOURCE = "Binance Spot"
-BINANCE_BASE_URL = "https://api.binance.com"
+BINANCE_BASE_URLS = [
+    "https://data-api.binance.vision",
+    "https://api.binance.com",
+    "https://api1.binance.com",
+    "https://api2.binance.com",
+    "https://api3.binance.com",
+    "https://api4.binance.com",
+]
 BINANCE_SYMBOL = "BTCUSDT"
 BINANCE_INTERVAL = "5m"
 
@@ -86,69 +93,99 @@ except Exception as e:
 @st.cache_data(ttl=30, show_spinner=False)
 def fetch_binance_klines(limit=1000):
     """
-    Public Binance Spot market data.
-    No API key is needed for these public market-data endpoints.
+    Public Binance market-data endpoints.
+    data-api.binance.vision is preferred for public market data because
+    Binance documents it specifically for public NONE-security endpoints.
+    Multiple official endpoints are tried as fallbacks.
     """
     params = urllib.parse.urlencode({
         "symbol": BINANCE_SYMBOL,
         "interval": BINANCE_INTERVAL,
         "limit": limit,
     })
-    url = f"{BINANCE_BASE_URL}/api/v3/klines?{params}"
 
-    req = urllib.request.Request(
-        url,
-        headers={"User-Agent": "BTC-Algo-Trading-V2.6"},
-        method="GET",
+    errors = []
+
+    for base_url in BINANCE_BASE_URLS:
+        url = f"{base_url}/api/v3/klines?{params}"
+        req = urllib.request.Request(
+            url,
+            headers={
+                "User-Agent": "Mozilla/5.0 BTC-Algo-Trading-V2.6.1",
+                "Accept": "application/json",
+            },
+            method="GET",
+        )
+
+        try:
+            with urllib.request.urlopen(req, timeout=10) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+
+            if not isinstance(payload, list) or not payload:
+                raise ValueError("Réponse vide ou invalide.")
+
+            rows = []
+            for k in payload:
+                rows.append({
+                    "Open time": pd.to_datetime(k[0], unit="ms", utc=True),
+                    "Open": float(k[1]),
+                    "High": float(k[2]),
+                    "Low": float(k[3]),
+                    "Close": float(k[4]),
+                    "Volume": float(k[5]),
+                    "Close time": pd.to_datetime(k[6], unit="ms", utc=True),
+                    "Quote volume": float(k[7]),
+                    "Trades": int(k[8]),
+                })
+
+            df = pd.DataFrame(rows).set_index("Open time")
+            df.index = df.index.tz_convert(TUNIS_TZ)
+            df = df[~df.index.duplicated(keep="last")].sort_index()
+
+            return df
+
+        except Exception as e:
+            errors.append(f"{base_url}: {type(e).__name__}: {e}")
+
+    raise RuntimeError(
+        "Impossible d'accéder aux endpoints publics Binance depuis "
+        "l'environnement Streamlit Cloud. Tentatives: "
+        + " | ".join(errors)
     )
-
-    with urllib.request.urlopen(req, timeout=10) as response:
-        payload = json.loads(response.read().decode("utf-8"))
-
-    if not isinstance(payload, list) or not payload:
-        raise ValueError("Réponse Binance invalide ou vide.")
-
-    rows = []
-    for k in payload:
-        rows.append({
-            "Open time": pd.to_datetime(k[0], unit="ms", utc=True),
-            "Open": float(k[1]),
-            "High": float(k[2]),
-            "Low": float(k[3]),
-            "Close": float(k[4]),
-            "Volume": float(k[5]),
-            "Close time": pd.to_datetime(k[6], unit="ms", utc=True),
-            "Quote volume": float(k[7]),
-            "Trades": int(k[8]),
-        })
-
-    df = pd.DataFrame(rows).set_index("Open time")
-    df.index = df.index.tz_convert(TUNIS_TZ)
-    df = df[~df.index.duplicated(keep="last")].sort_index()
-
-    return df
 
 
 @st.cache_data(ttl=5, show_spinner=False)
 def fetch_binance_ticker():
     """
-    Current Binance Spot BTC/USDT ticker.
-    Used separately from the last closed candle so the displayed
-    live price is not confused with the previous 5-minute close.
+    Current BTC/USDT price from Binance public market-data endpoints.
     """
     params = urllib.parse.urlencode({"symbol": BINANCE_SYMBOL})
-    url = f"{BINANCE_BASE_URL}/api/v3/ticker/price?{params}"
+    errors = []
 
-    req = urllib.request.Request(
-        url,
-        headers={"User-Agent": "BTC-Algo-Trading-V2.6"},
-        method="GET",
+    for base_url in BINANCE_BASE_URLS:
+        url = f"{base_url}/api/v3/ticker/price?{params}"
+        req = urllib.request.Request(
+            url,
+            headers={
+                "User-Agent": "Mozilla/5.0 BTC-Algo-Trading-V2.6.1",
+                "Accept": "application/json",
+            },
+            method="GET",
+        )
+
+        try:
+            with urllib.request.urlopen(req, timeout=8) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+
+            return float(payload["price"])
+
+        except Exception as e:
+            errors.append(f"{base_url}: {type(e).__name__}: {e}")
+
+    raise RuntimeError(
+        "Prix live Binance indisponible. Tentatives: "
+        + " | ".join(errors)
     )
-
-    with urllib.request.urlopen(req, timeout=10) as response:
-        payload = json.loads(response.read().decode("utf-8"))
-
-    return float(payload["price"])
 
 
 def add_features(df):
@@ -612,13 +649,24 @@ def drawdown_chart(result):
 # APP
 # ============================================================
 
-st.title("₿ BTC Algo Trading — V2.5")
+st.title("₿ BTC Algo Trading — V2.6.1")
 st.caption(
     "Dashboard éducatif et simulation historique. "
     "Aucun ordre réel n'est exécuté."
 )
 
-df = fetch_data()
+try:
+    df = fetch_data()
+except Exception as e:
+    st.error("⚠️ Impossible de récupérer les données de marché.")
+    st.warning(
+        "Le problème vient de la connexion entre Streamlit Cloud et "
+        "les endpoints Binance, pas du modèle ML. V2.6.1 essaie "
+        "plusieurs endpoints publics officiels Binance."
+    )
+    with st.expander("Détails techniques"):
+        st.code(str(e))
+    st.stop()
 
 if df is None or df.empty:
     st.error("Aucune donnée BTC disponible.")
@@ -626,10 +674,10 @@ if df is None or df.empty:
 
 try:
     live_price = fetch_binance_ticker()
-    data_status = "🟢 Connexion Binance OK"
+    data_status = "🟢 Binance connecté"
 except Exception as e:
     live_price = float(df["Close"].iloc[-1])
-    data_status = "🟠 Ticker indisponible — dernière clôture utilisée"
+    data_status = "🟠 Prix live indisponible — dernière clôture utilisée"
 
 # Current state
 preds, future_times, model_reference_price = predict_current(df)
@@ -667,6 +715,12 @@ st.info(
     f"{data_status} | "
     f"Dernière bougie: **{last_time.strftime('%d/%m/%Y %H:%M:%S')}** "
     f"| Heure locale: **{now_tunis.strftime('%H:%M:%S')}**"
+)
+
+st.caption(
+    "Source de référence: Binance public market data. "
+    "V2.6.1 utilise data-api.binance.vision en priorité, puis plusieurs "
+    "endpoints officiels Binance de secours. "
 )
 
 st.caption(
@@ -1043,6 +1097,6 @@ with st.expander("ℹ️ Informations sur le modèle"):
     )
 
 st.caption(
-    "V2.5 — données Yahoo Finance / modèle ML existant / "
+    "V2.6.1 — données Yahoo Finance / modèle ML existant / "
     "backtest uniquement simulé."
 )
