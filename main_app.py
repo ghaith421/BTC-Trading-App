@@ -284,13 +284,33 @@ def compute_forecast_reliability(
     for t in range(test_start, test_end):
         if cached_model is None or (t - test_start) % retrain_every == 0:
             model_fw = make_walk_forward_model()
-            y_train = np.column_stack(
-                [close[j + 1 : j + 1 + HORIZONS] for j in range(t - train_size, t)]
+            # Each training row must contain the 12 future targets:
+            # [Close(t+1), ..., Close(t+12)].
+            # np.column_stack() here would produce shape (12, train_size)
+            # and therefore cannot be combined with X_train.
+            y_train = np.asarray(
+                [
+                    close[j + 1 : j + 1 + HORIZONS]
+                    for j in range(t - train_size, t)
+                ],
+                dtype=float,
             )
             X_train = X_all[t - train_size : t]
 
+            # Defensive shape check for Streamlit Cloud / future edits.
+            if y_train.shape != (len(X_train), HORIZONS):
+                continue
+
             # Guard against NaN/inf in reconstructed features.
-            mask = np.isfinite(X_train).all(axis=1) & np.isfinite(y_train).all(axis=1)
+            if X_train.ndim != 2 or X_train.shape[1] != len(FEATURES):
+                continue
+            if y_train.ndim != 2 or y_train.shape[1] != HORIZONS:
+                continue
+
+            mask_x = np.isfinite(X_train).all(axis=1)
+            mask_y = np.isfinite(y_train).all(axis=1)
+            mask = mask_x & mask_y
+
             if mask.sum() < max(100, int(0.7 * len(mask))):
                 continue
 
@@ -310,6 +330,8 @@ def compute_forecast_reliability(
 
         model_fw, scaler_fw = cached_model
         X_test = X_all[t : t + 1]
+        if X_test.ndim != 2 or X_test.shape[1] != len(FEATURES):
+            continue
         if not np.isfinite(X_test).all():
             continue
 
