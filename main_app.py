@@ -26,7 +26,7 @@ warnings.filterwarnings("ignore")
 # ============================================================
 
 st.set_page_config(
-    page_title="BTC Intelligence — V3.2",
+    page_title="BTC Intelligence — V3.3",
     page_icon="₿",
     layout="wide",
 )
@@ -240,6 +240,192 @@ def detect_supports_resistances(df, order=5):
     supports = df.iloc[local_min_idx]["Low"].tail(5).tolist()
 
     return supports, resistances
+
+
+
+# ============================================================
+# V3.3 - OUT-OF-SAMPLE FORECAST RELIABILITY
+# ============================================================
+# The model's tree dispersion is useful as an uncertainty indicator,
+# but it is NOT a calibrated prediction interval. V3.3 therefore
+# estimates empirical forecast errors with a walk-forward procedure.
+# These statistics are descriptive/educational and do not guarantee
+# future accuracy.
+
+@st.cache_data(ttl=900, show_spinner=False)
+def compute_forecast_reliability(
+    close_values,
+    feature_values,
+    index_values,
+    train_size=650,
+    test_size=260,
+    retrain_every=12,
+):
+    close = np.asarray(close_values, dtype=float)
+    X_all = np.asarray(feature_values, dtype=float)
+    idx = pd.DatetimeIndex(index_values)
+
+    n = len(close)
+    if n <= train_size + test_size + HORIZONS + 10:
+        return None
+
+    usable_n = n - HORIZONS
+    max_test_start = usable_n - test_size
+    if max_test_start <= train_size:
+        return None
+
+    # Keep the calibration computation bounded for Streamlit Cloud.
+    test_start = max(train_size, max_test_start)
+    test_end = usable_n
+
+    records = []
+    cached_model = None
+
+    for t in range(test_start, test_end):
+        if cached_model is None or (t - test_start) % retrain_every == 0:
+            model_fw = make_walk_forward_model()
+            y_train = np.column_stack(
+                [close[j + 1 : j + 1 + HORIZONS] for j in range(t - train_size, t)]
+            )
+            X_train = X_all[t - train_size : t]
+
+            # Guard against NaN/inf in reconstructed features.
+            mask = np.isfinite(X_train).all(axis=1) & np.isfinite(y_train).all(axis=1)
+            if mask.sum() < max(100, int(0.7 * len(mask))):
+                continue
+
+            X_train_clean = X_train[mask]
+            y_train_clean = y_train[mask]
+
+            # The saved scaler is part of the original live model.
+            # For this out-of-sample diagnostic, fit a fresh scaler only
+            # on past training data to avoid any future-data leakage.
+            scaler_fw = StandardScaler()
+            Xs_train = scaler_fw.fit_transform(X_train_clean)
+            model_fw.fit(Xs_train, y_train_clean)
+            cached_model = (model_fw, scaler_fw)
+
+        if cached_model is None:
+            continue
+
+        model_fw, scaler_fw = cached_model
+        X_test = X_all[t : t + 1]
+        if not np.isfinite(X_test).all():
+            continue
+
+        pred = np.asarray(
+            model_fw.predict(scaler_fw.transform(X_test))[0],
+            dtype=float,
+        )
+        actual = close[t + 1 : t + 1 + HORIZONS]
+
+        if len(actual) != HORIZONS:
+            continue
+
+        for h in range(HORIZONS):
+            records.append({
+                "t": t,
+                "h": h + 1,
+                "pred": float(pred[h]),
+                "actual": float(actual[h]),
+                "error": float(actual[h] - pred[h]),
+                "abs_error_pct": float(abs(actual[h] - pred[h]) / max(abs(actual[h]), 1e-9) * 100),
+                "direction_ok": int(
+                    np.sign(pred[h] - close[t]) == np.sign(actual[h] - close[t])
+                ),
+            })
+
+    if not records:
+        return None
+
+    res = pd.DataFrame(records)
+
+    # Horizon-level empirical statistics.
+    horizon_rows = []
+    for h in range(1, HORIZONS + 1):
+        g = res[res["h"] == h]
+        if g.empty:
+            continue
+        err = g["error"].to_numpy()
+        horizon_rows.append({
+            "Horizon": h,
+            "MAE": float(np.mean(np.abs(err))),
+            "RMSE": float(np.sqrt(np.mean(err ** 2))),
+            "MAE_pct": float(g["abs_error_pct"].mean()),
+            "Direction": float(g["direction_ok"].mean() * 100),
+            "Q10_error": float(np.quantile(err, 0.10)),
+            "Q90_error": float(np.quantile(err, 0.90)),
+            "N": int(len(g)),
+        })
+
+    horizon_df = pd.DataFrame(horizon_rows)
+
+    if horizon_df.empty:
+        return None
+
+    overall = {
+        "MAE_pct": float(res["abs_error_pct"].mean()),
+        "Direction": float(res["direction_ok"].mean() * 100),
+        "N": int(len(res)),
+        "Observations": int(res["t"].nunique()),
+    }
+
+    return horizon_df, overall
+
+
+def calibrated_interval_for_horizon(
+    reference_price,
+    central_prediction,
+    horizon,
+    reliability,
+):
+    """Build an empirical interval from past out-of-sample residuals."""
+    if reliability is None:
+        return central_prediction, central_prediction, None
+
+    horizon_df, _ = reliability
+    row = horizon_df[horizon_df["Horizon"] == int(horizon)]
+    if row.empty:
+        return central_prediction, central_prediction, None
+
+    q10 = float(row["Q10_error"].iloc[0])
+    q90 = float(row["Q90_error"].iloc[0])
+
+    # Residual interval is empirical, not a probability guarantee.
+    low = central_prediction + q10
+    high = central_prediction + q90
+    return float(low), float(high), float(row["MAE_pct"].iloc[0])
+
+
+def reliability_label(direction_accuracy, mae_pct, sample_n):
+    if sample_n < 100:
+        return "ÉCHANTILLON LIMITÉ"
+    if direction_accuracy >= 58 and mae_pct <= 0.60:
+        return "BONNE"
+    if direction_accuracy >= 52 and mae_pct <= 1.00:
+        return "MOYENNE"
+    return "FAIBLE"
+
+
+def reliability_adjusted_quality(base_quality, reliability):
+    """Blend current model coherence with observed out-of-sample behavior."""
+    if reliability is None:
+        return base_quality, "NON CALIBRÉE"
+
+    _, overall = reliability
+    direction = overall["Direction"]
+    mae_pct = overall["MAE_pct"]
+
+    # Direction component: 50% at random -> 100% at 75%+.
+    direction_component = np.clip((direction - 50) / 25, 0, 1) * 100
+    # Error component: <=0.25% is excellent, >=1.50% is weak.
+    error_component = np.clip(1 - (mae_pct - 0.25) / 1.25, 0, 1) * 100
+
+    empirical = 0.60 * direction_component + 0.40 * error_component
+    final_quality = float(0.45 * base_quality + 0.55 * empirical)
+
+    label = reliability_label(direction, mae_pct, overall["Observations"])
+    return final_quality, label
 
 
 # ============================================================
@@ -842,7 +1028,7 @@ def drawdown_chart(result):
 
 # ============================================================
 # ============================================================
-# V3.2 — PREMIUM TERMINAL UI
+# V3.3 — PREMIUM TERMINAL UI
 # ============================================================
 
 st.markdown(r"""
@@ -920,7 +1106,7 @@ hr { border-color:var(--line); }
 # Sidebar
 # -----------------------------
 with st.sidebar:
-    st.markdown('<div class="brand"><div class="brand-icon">₿</div><div><div class="brand-name">BTC Intelligence</div><div class="brand-sub">V3.2 • FORECAST LAB</div></div></div>', unsafe_allow_html=True)
+    st.markdown('<div class="brand"><div class="brand-icon">₿</div><div><div class="brand-name">BTC Intelligence</div><div class="brand-sub">V3.3 • FORECAST LAB</div></div></div>', unsafe_allow_html=True)
     st.divider()
     st.markdown("**⚙️ CONTRÔLE DU DASHBOARD**")
     refresh_info = st.select_slider("Actualisation", options=["5s","15s","30s","60s"], value="30s")
@@ -963,11 +1149,50 @@ except Exception:
     live_price = float(df["Close"].iloc[-1])
     data_status = "Dernière clôture"
 
-preds, p10, p90, tree_dispersion, model_reference_price = get_ensemble_forecast(df)
+preds, p10_tree, p90_tree, tree_dispersion, model_reference_price = get_ensemble_forecast(df)
 future_times = [df.index[-1] + timedelta(minutes=BAR_MINUTES * (i + 1)) for i in range(HORIZONS)]
 supports, resistances = detect_supports_resistances(df)
-quality_info = forecast_quality(df, preds, p10, p90, tree_dispersion)
-decision_state, decision_reason, signal_strength = decision_framework(df, preds, p10, p90, quality_info)
+
+# Empirical out-of-sample reliability/calibration.
+reliability = compute_forecast_reliability(
+    df["Close"].values,
+    df[FEATURES].values,
+    df.index.values,
+    train_size=650,
+    test_size=260,
+    retrain_every=12,
+)
+
+# Replace the raw tree spread with empirical residual intervals where available.
+p10 = np.zeros(HORIZONS, dtype=float)
+p90 = np.zeros(HORIZONS, dtype=float)
+empirical_mae_pct = []
+for h in range(1, HORIZONS + 1):
+    lo, hi, mae_pct = calibrated_interval_for_horizon(
+        model_reference_price,
+        float(preds[h - 1]),
+        h,
+        reliability,
+    )
+    if reliability is None:
+        lo = float(p10_tree[h - 1])
+        hi = float(p90_tree[h - 1])
+    p10[h - 1] = lo
+    p90[h - 1] = hi
+    if mae_pct is not None:
+        empirical_mae_pct.append(mae_pct)
+
+base_quality_info = forecast_quality(df, preds, p10_tree, p90_tree, tree_dispersion)
+quality_score, reliability_label_text = reliability_adjusted_quality(
+    base_quality_info["quality"], reliability
+)
+quality_info = dict(base_quality_info)
+quality_info["quality"] = quality_score
+quality_info["reliability"] = reliability_label_text
+
+decision_state, decision_reason, signal_strength = decision_framework(
+    df, preds, p10, p90, quality_info
+)
 signal, strength, score, pct_change = calculate_signal(df, preds)
 live_gap = (live_price - model_reference_price) / model_reference_price
 rsi = float(df["RSI"].iloc[-1])
@@ -1170,3 +1395,62 @@ with st.expander("ℹ️ Détails techniques du modèle"):
     st.write("**Features utilisées :**",FEATURES)
 
 st.markdown('<div class="footer">BTC Intelligence V3.1 · Binance public market data · Dashboard éducatif et simulation historique · Aucun ordre réel exécuté.</div>',unsafe_allow_html=True)
+
+
+# ============================================================
+# FORECAST RELIABILITY PANEL
+# ============================================================
+st.markdown("### 📏 Fiabilité historique de la prévision")
+
+if reliability is None:
+    st.info(
+        "Calibration historique indisponible sur cet échantillon. "
+        "Les bornes affichées reposent alors sur la dispersion interne du modèle."
+    )
+else:
+    rel_df, rel_overall = reliability
+    r1, r2, r3, r4 = st.columns(4)
+    r1.metric("Précision directionnelle", f"{rel_overall['Direction']:.1f}%")
+    r2.metric("Erreur absolue moyenne", f"{rel_overall['MAE_pct']:.2f}%")
+    r3.metric("Observations testées", f"{rel_overall['Observations']:,}")
+    r4.metric("Fiabilité", reliability_label_text)
+
+    st.caption(
+        "Mesure calculée hors échantillon par validation walk-forward. "
+        "Elle décrit le comportement historique du modèle et ne constitue pas une probabilité de gain."
+    )
+
+    display_rel = rel_df.copy()
+    display_rel["Horizon"] = display_rel["Horizon"].map(lambda x: f"+{int(x)*5} min")
+    display_rel["MAE_pct"] = display_rel["MAE_pct"].map(lambda x: f"{x:.2f}%")
+    display_rel["Direction"] = display_rel["Direction"].map(lambda x: f"{x:.1f}%")
+    display_rel["MAE"] = display_rel["MAE"].map(lambda x: f"${x:,.2f}")
+    display_rel["RMSE"] = display_rel["RMSE"].map(lambda x: f"${x:,.2f}")
+    display_rel = display_rel[["Horizon", "MAE", "RMSE", "MAE_pct", "Direction", "N"]]
+    display_rel.columns = [
+        "Horizon", "MAE", "RMSE", "Erreur %", "Direction correcte", "N"
+    ]
+    st.dataframe(display_rel, use_container_width=True, hide_index=True)
+
+    fig_rel = go.Figure()
+    fig_rel.add_trace(go.Scatter(
+        x=rel_df["Horizon"] * 5,
+        y=rel_df["Direction"],
+        mode="lines+markers",
+        name="Direction correcte (%)",
+    ))
+    fig_rel.add_hline(y=50, line_dash="dash", annotation_text="Hasard 50%")
+    fig_rel.update_layout(
+        height=320,
+        template="plotly_dark",
+        xaxis_title="Horizon (minutes)",
+        yaxis_title="Direction correcte (%)",
+        hovermode="x unified",
+    )
+    st.plotly_chart(fig_rel, use_container_width=True)
+
+    st.warning(
+        "⚠️ Les intervalles V3.3 sont des intervalles empiriques basés sur les erreurs "
+        "hors échantillon. Ils ne sont pas des intervalles de confiance garantis."
+    )
+
