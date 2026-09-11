@@ -680,253 +680,113 @@ def drawdown_chart(result):
 # ============================================================
 
 # ============================================================
-# V3 — PREMIUM UI
+# ============================================================
+# V3.1 — PREMIUM TERMINAL UI
 # ============================================================
 
-st.markdown("""
+st.markdown(r"""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 
-html, body, [class*="css"] {
-    font-family: 'Inter', sans-serif;
-}
+:root { --bg:#060a10; --panel:#0b111a; --panel2:#0f1722; --line:rgba(148,163,184,.12); --muted:#8290a5; --text:#edf2f7; --btc:#f7931a; --green:#35d07f; --red:#ff5c6c; --blue:#5b8cff; }
+html, body, [class*="css"] { font-family:'Inter',sans-serif; }
+.stApp { background: radial-gradient(circle at 15% -10%,rgba(247,147,26,.13),transparent 25%), radial-gradient(circle at 100% 5%,rgba(91,140,255,.12),transparent 28%), linear-gradient(180deg,#060a10 0%,#080d14 100%); color:var(--text); }
+.block-container { max-width:1540px; padding:1.0rem 2rem 3rem; }
+header[data-testid="stHeader"] { background:transparent; }
+[data-testid="stToolbar"] { visibility:hidden; }
+section[data-testid="stSidebar"] { background:linear-gradient(180deg,#080d14,#070b11); border-right:1px solid var(--line); }
+section[data-testid="stSidebar"] > div { padding:1.2rem 1rem; }
 
-.stApp {
-    background:
-        radial-gradient(circle at 8% 0%, rgba(247,147,26,.10), transparent 28%),
-        radial-gradient(circle at 92% 8%, rgba(59,130,246,.08), transparent 24%),
-        #070b12;
-}
+.brand { display:flex; align-items:center; gap:.75rem; }
+.brand-icon { width:42px;height:42px;border-radius:13px;display:flex;align-items:center;justify-content:center;background:linear-gradient(145deg,#f7931a,#ffb04a);color:#111;font-size:1.45rem;font-weight:900;box-shadow:0 10px 30px rgba(247,147,26,.18); }
+.brand-name { font-size:1.05rem;font-weight:800;letter-spacing:-.02em; }
+.brand-sub { color:var(--muted);font-size:.68rem;margin-top:.12rem; }
 
-.block-container {
-    max-width: 1500px;
-    padding-top: 1.2rem;
-    padding-bottom: 2.5rem;
-}
+.hero { position:relative; overflow:hidden; border:1px solid var(--line); border-radius:26px; padding:1.55rem 1.65rem; margin-bottom:1rem; background:linear-gradient(135deg,rgba(15,23,34,.96),rgba(8,13,20,.88)); box-shadow:0 24px 80px rgba(0,0,0,.28); }
+.hero:after { content:""; position:absolute; width:320px;height:320px;right:-110px;top:-180px;border-radius:50%;background:rgba(247,147,26,.12);filter:blur(12px); }
+.hero-grid { display:flex;justify-content:space-between;align-items:center;gap:1rem;position:relative;z-index:2; }
+.hero-title { font-size:2.15rem;font-weight:800;letter-spacing:-.055em;margin:.45rem 0 .2rem; }
+.hero-sub { color:#8e9bae;font-size:.82rem; }
+.status { display:inline-flex;align-items:center;gap:.45rem;border:1px solid rgba(53,208,127,.25);background:rgba(53,208,127,.08);color:#7df0ac;padding:.38rem .68rem;border-radius:999px;font-size:.68rem;font-weight:800;letter-spacing:.06em; }
+.status-dot { width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 12px rgba(53,208,127,.75); }
+.hero-right { text-align:right;min-width:170px; }
+.hero-price-label { color:var(--muted);font-size:.68rem;text-transform:uppercase;letter-spacing:.09em; }
+.hero-price { font-size:1.8rem;font-weight:800;margin-top:.15rem; }
+.hero-gap { font-size:.72rem;color:#8e9bae;margin-top:.15rem; }
 
-section[data-testid="stSidebar"] {
-    background: #0b1018;
-    border-right: 1px solid rgba(148,163,184,.10);
-}
+.kpi-grid { display:grid;grid-template-columns:repeat(5,1fr);gap:.75rem;margin:.8rem 0 1rem; }
+.kpi { min-height:112px;padding:1rem 1.05rem;border-radius:18px;border:1px solid var(--line);background:linear-gradient(145deg,rgba(15,23,34,.92),rgba(9,14,22,.96));box-shadow:0 12px 35px rgba(0,0,0,.16); }
+.kpi-top { display:flex;justify-content:space-between;align-items:center;gap:.5rem; }
+.kpi-label { color:#7f8da2;font-size:.64rem;font-weight:800;text-transform:uppercase;letter-spacing:.09em; }
+.kpi-icon { width:27px;height:27px;border-radius:9px;background:rgba(148,163,184,.08);display:flex;align-items:center;justify-content:center;font-size:.8rem; }
+.kpi-value { font-size:1.42rem;font-weight:800;margin-top:.42rem;letter-spacing:-.03em; }
+.kpi-note { color:#637084;font-size:.67rem;margin-top:.22rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+.btc { color:var(--btc); }.green { color:var(--green); }.red { color:var(--red); }.blue { color:#8eaeff; }.yellow { color:#f5cc5d; }
 
-section[data-testid="stSidebar"] > div {
-    padding-top: 1.5rem;
-}
+.panel { border:1px solid var(--line);border-radius:20px;background:rgba(11,17,26,.82);box-shadow:0 14px 45px rgba(0,0,0,.14);padding:1rem 1.05rem;margin-bottom:.85rem; }
+.panel-head { display:flex;justify-content:space-between;align-items:flex-end;gap:1rem;margin-bottom:.75rem; }
+.panel-title { font-size:.96rem;font-weight:800;letter-spacing:-.02em; }
+.panel-sub { color:#657287;font-size:.68rem;margin-top:.18rem; }
+.badge { display:inline-flex;padding:.3rem .55rem;border-radius:8px;background:rgba(91,140,255,.09);border:1px solid rgba(91,140,255,.15);color:#9bb5ff;font-size:.62rem;font-weight:800; }
 
-.hero {
-    padding: 1.4rem 1.6rem;
-    border: 1px solid rgba(148,163,184,.13);
-    border-radius: 22px;
-    background: linear-gradient(135deg, rgba(15,23,42,.96), rgba(10,15,24,.88));
-    box-shadow: 0 20px 60px rgba(0,0,0,.22);
-    margin-bottom: 1rem;
-}
+.signal { display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:1rem;border:1px solid var(--line);border-radius:18px;padding:.85rem 1rem;background:linear-gradient(90deg,rgba(247,147,26,.055),rgba(91,140,255,.035));margin-bottom:.85rem; }
+.signal-icon { width:44px;height:44px;border-radius:13px;display:flex;align-items:center;justify-content:center;font-size:1.35rem;font-weight:900;background:rgba(247,147,26,.10);border:1px solid rgba(247,147,26,.16); }
+.signal-name { font-size:1.05rem;font-weight:800; }.signal-desc { color:#7e8ba0;font-size:.69rem;margin-top:.15rem; }
+.score-box { text-align:right;min-width:120px; }.score-num { font-size:1.2rem;font-weight:800; }.score-track { height:6px;background:#1a2431;border-radius:99px;overflow:hidden;margin-top:.35rem; }.score-fill { height:100%;border-radius:99px;background:linear-gradient(90deg,#f7931a,#ffd166); }
 
-.hero-title {
-    font-size: 2.05rem;
-    font-weight: 800;
-    letter-spacing: -.04em;
-    margin: 0;
-}
+.info-strip { display:flex;flex-wrap:wrap;gap:.55rem .9rem;padding:.62rem .78rem;border-radius:12px;background:rgba(15,23,34,.72);border:1px solid var(--line);color:#7f8da2;font-size:.66rem;margin-bottom:.85rem; }
+.info-item b { color:#dbe3ed; }
 
-.hero-subtitle {
-    color: #94a3b8;
-    margin-top: .25rem;
-    font-size: .92rem;
-}
+.section-title { font-size:1rem;font-weight:800;margin:.3rem 0 .2rem; }.section-caption { color:#68768b;font-size:.69rem;margin-bottom:.65rem; }
 
-.live-pill {
-    display: inline-flex;
-    align-items: center;
-    gap: .45rem;
-    padding: .38rem .72rem;
-    border-radius: 999px;
-    background: rgba(34,197,94,.09);
-    border: 1px solid rgba(34,197,94,.20);
-    color: #86efac;
-    font-size: .78rem;
-    font-weight: 700;
-}
+div[data-baseweb="tab-list"] { gap:4px;border-bottom:1px solid var(--line); }
+button[data-baseweb="tab"] { border-radius:10px 10px 0 0;padding:.7rem .9rem;color:#7f8da2;font-weight:700; }
+button[data-baseweb="tab"][aria-selected="true"] { color:#f5f7fa; }
 
-.kpi {
-    min-height: 118px;
-    padding: 1rem 1.05rem;
-    border-radius: 18px;
-    border: 1px solid rgba(148,163,184,.12);
-    background: linear-gradient(145deg, rgba(17,24,39,.94), rgba(10,15,24,.94));
-    box-shadow: 0 12px 35px rgba(0,0,0,.16);
-}
+.stButton > button { border-radius:11px;font-weight:800;min-height:2.6rem; }
+div[data-testid="stDataFrame"] { border:1px solid var(--line);border-radius:14px;overflow:hidden; }
+div[data-testid="stMetric"] { background:rgba(15,23,34,.78);border:1px solid var(--line);border-radius:14px;padding:.7rem .8rem; }
+.stAlert { border-radius:14px; }
+hr { border-color:var(--line); }
+.footer { text-align:center;color:#3f4d61;font-size:.64rem;padding-top:1.4rem; }
 
-.kpi-label {
-    color: #94a3b8;
-    font-size: .72rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: .08em;
-}
-
-.kpi-value {
-    color: #f8fafc;
-    font-size: 1.45rem;
-    font-weight: 800;
-    margin-top: .35rem;
-}
-
-.kpi-value.btc { color: #f7931a; }
-.kpi-value.green { color: #4ade80; }
-.kpi-value.red { color: #f87171; }
-.kpi-value.yellow { color: #facc15; }
-
-.kpi-note {
-    color: #64748b;
-    font-size: .70rem;
-    margin-top: .22rem;
-}
-
-.section-title {
-    font-size: 1.08rem;
-    font-weight: 800;
-    color: #e5e7eb;
-    margin: 1rem 0 .65rem;
-}
-
-.section-caption {
-    color: #64748b;
-    font-size: .78rem;
-    margin-top: -.35rem;
-    margin-bottom: .7rem;
-}
-
-.signal-card {
-    border-radius: 18px;
-    padding: 1rem 1.15rem;
-    border: 1px solid rgba(148,163,184,.13);
-    background: #0d131d;
-    margin: .2rem 0 1rem;
-}
-
-.signal-main {
-    font-size: 1.35rem;
-    font-weight: 800;
-}
-
-.signal-meta {
-    color: #94a3b8;
-    font-size: .78rem;
-    margin-top: .3rem;
-}
-
-.score-track {
-    height: 7px;
-    background: #1e293b;
-    border-radius: 99px;
-    overflow: hidden;
-    margin-top: .6rem;
-}
-
-.score-fill {
-    height: 100%;
-    border-radius: 99px;
-}
-
-.info-strip {
-    padding: .65rem .9rem;
-    border-radius: 12px;
-    background: rgba(30,41,59,.45);
-    border: 1px solid rgba(148,163,184,.09);
-    color: #94a3b8;
-    font-size: .76rem;
-    margin-bottom: .8rem;
-}
-
-div[data-baseweb="tab-list"] {
-    gap: 6px;
-    border-bottom: 1px solid rgba(148,163,184,.10);
-}
-
-button[data-baseweb="tab"] {
-    border-radius: 10px 10px 0 0;
-    padding: .75rem 1rem;
-}
-
-div[data-testid="stMetric"] {
-    background: rgba(17,24,39,.75);
-    border: 1px solid rgba(148,163,184,.10);
-    border-radius: 14px;
-    padding: .7rem .8rem;
-}
-
-.stButton > button {
-    border-radius: 11px;
-    font-weight: 700;
-}
-
-div[data-testid="stDataFrame"] {
-    border-radius: 14px;
-    overflow: hidden;
-}
-
-hr {
-    border-color: rgba(148,163,184,.08);
-}
-
-.footer {
-    text-align: center;
-    color: #475569;
-    font-size: .70rem;
-    padding-top: 1.4rem;
-}
+@media (max-width: 1100px) { .kpi-grid{grid-template-columns:repeat(3,1fr);} .hero-grid{align-items:flex-start;} }
+@media (max-width: 700px) { .block-container{padding:1rem .75rem 2rem;} .kpi-grid{grid-template-columns:repeat(2,1fr);} .hero-grid{flex-direction:column;align-items:flex-start;} .hero-right{text-align:left;} .hero-title{font-size:1.7rem;} .signal{grid-template-columns:auto 1fr;} .score-box{grid-column:2;text-align:left;} }
 </style>
 """, unsafe_allow_html=True)
 
-# Sidebar = compact control center
+# -----------------------------
+# Sidebar
+# -----------------------------
 with st.sidebar:
-    st.markdown("## ₿ BTC Intelligence")
-    st.caption("V3 • Market analytics")
+    st.markdown('<div class="brand"><div class="brand-icon">₿</div><div><div class="brand-name">BTC Intelligence</div><div class="brand-sub">V3.1 • ANALYTICS TERMINAL</div></div></div>', unsafe_allow_html=True)
     st.divider()
-    st.markdown("### ⚙️ Configuration")
-    refresh_info = st.select_slider(
-        "Actualisation des données",
-        options=["5s", "15s", "30s", "60s"],
-        value="30s",
-    )
+    st.markdown("**⚙️ CONTRÔLE DU DASHBOARD**")
+    refresh_info = st.select_slider("Actualisation", options=["5s","15s","30s","60s"], value="30s")
     auto_refresh = st.toggle("Actualisation automatique", value=False)
     st.divider()
-    st.markdown("### 📡 Source")
-    st.markdown(f"**{MARKET_SOURCE}**")
-    st.caption(f"{BINANCE_SYMBOL} • bougies {BAR_MINUTES} min")
+    st.markdown("**📡 MARCHÉ**")
+    st.caption(f"{MARKET_SOURCE} · {BINANCE_SYMBOL}")
+    st.caption(f"Bougies {BAR_MINUTES} min · prix live séparé")
     st.divider()
-    st.markdown("### 🧠 Modèle")
-    st.caption("Random Forest • 12 horizons")
-    st.caption("Référence : dernière bougie clôturée")
+    st.markdown("**🧠 MODÈLE**")
+    st.caption("Random Forest · 12 horizons")
+    st.caption("Features : RSI, SMA, volatilité, lags")
     st.divider()
-    st.caption("Dashboard éducatif / simulation uniquement.")
+    st.caption("Mode éducatif / simulation historique. Aucun ordre réel n'est exécuté.")
 
 if auto_refresh:
-    refresh_seconds = {"5s": 5, "15s": 15, "30s": 30, "60s": 60}[refresh_info]
-    st.markdown(
-        f'<meta http-equiv="refresh" content="{refresh_seconds}">',
-        unsafe_allow_html=True
-    )
+    refresh_seconds = {"5s":5,"15s":15,"30s":30,"60s":60}[refresh_info]
+    st.markdown(f'<meta http-equiv="refresh" content="{refresh_seconds}">', unsafe_allow_html=True)
 
-st.markdown("""
-<div class="hero">
-    <div class="live-pill">● MARKET DATA CONNECTED</div>
-    <div class="hero-title">₿ BTC Intelligence</div>
-    <div class="hero-subtitle">
-        Market overview · Machine Learning · Walk-Forward Analytics
-    </div>
-</div>
-""", unsafe_allow_html=True)
-
+# -----------------------------
+# Data
+# -----------------------------
 try:
     df = fetch_data()
 except Exception as e:
     st.error("⚠️ Impossible de récupérer les données de marché.")
-    st.warning(
-        "La connexion aux endpoints publics Binance a échoué. "
-        "Le modèle ML n'est pas en cause."
-    )
+    st.warning("La connexion aux endpoints publics Binance a échoué. Le modèle ML n'est pas en cause.")
     with st.expander("Détails techniques"):
         st.code(str(e))
     st.stop()
@@ -937,10 +797,10 @@ if df is None or df.empty:
 
 try:
     live_price = fetch_binance_ticker()
-    data_status = "🟢 Connecté"
+    data_status = "Connecté"
 except Exception:
     live_price = float(df["Close"].iloc[-1])
-    data_status = "🟠 Dernière clôture"
+    data_status = "Dernière clôture"
 
 preds, future_times, model_reference_price = predict_current(df)
 supports, resistances = detect_supports_resistances(df)
@@ -955,256 +815,142 @@ signal_class = "green" if score >= 50 else "red" if score <= -50 else "yellow"
 signal_icon = "↑" if score >= 50 else "↓" if score <= -50 else "→"
 score_pct = min(100, max(0, int(50 + score / 2)))
 
-# KPI row
-k1, k2, k3, k4, k5 = st.columns(5)
-with k1:
-    st.markdown(f"""
-    <div class="kpi">
-      <div class="kpi-label">BTC / USDT</div>
-      <div class="kpi-value btc">${live_price:,.2f}</div>
-      <div class="kpi-note">{data_status} • live</div>
-    </div>""", unsafe_allow_html=True)
-with k2:
-    st.markdown(f"""
-    <div class="kpi">
-      <div class="kpi-label">Prévision +1H</div>
-      <div class="kpi-value {'green' if pct_change >= 0 else 'red'}">${preds[-1]:,.2f}</div>
-      <div class="kpi-note">{pct_change:+.2%} vs clôture modèle</div>
-    </div>""", unsafe_allow_html=True)
-with k3:
-    st.markdown(f"""
-    <div class="kpi">
-      <div class="kpi-label">Signal ML</div>
-      <div class="kpi-value {signal_class}">{signal_icon} {signal.split()[0]}</div>
-      <div class="kpi-note">Force : {strength}</div>
-    </div>""", unsafe_allow_html=True)
-with k4:
-    st.markdown(f"""
-    <div class="kpi">
-      <div class="kpi-label">RSI 14</div>
-      <div class="kpi-value">{rsi:.1f}</div>
-      <div class="kpi-note">Volatilité : {volatility:.2%}</div>
-    </div>""", unsafe_allow_html=True)
-with k5:
-    st.markdown(f"""
-    <div class="kpi">
-      <div class="kpi-label">Score</div>
-      <div class="kpi-value {signal_class}">{score:+d} / 100</div>
-      <div class="kpi-note">Indice combiné ML + tendance + RSI</div>
-    </div>""", unsafe_allow_html=True)
-
-# Signal panel
+# -----------------------------
+# Hero
+# -----------------------------
 st.markdown(f"""
-<div class="signal-card">
-  <div class="signal-main">{signal_icon} {signal} <span style="color:#94a3b8;font-size:.85rem;">• {strength}</span></div>
-  <div class="signal-meta">Score de contexte : {score:+d} · Projection 1h : {pct_change:+.2%}</div>
-  <div class="score-track"><div class="score-fill" style="width:{score_pct}%;background:#f7931a;"></div></div>
-</div>
-""", unsafe_allow_html=True)
+<div class="hero">
+  <div class="hero-grid">
+    <div>
+      <div class="status"><span class="status-dot"></span> {data_status.upper()} · {MARKET_SOURCE.upper()}</div>
+      <div class="hero-title">₿ BTC Intelligence</div>
+      <div class="hero-sub">Real-time market view · Machine Learning · Walk-Forward Analytics</div>
+    </div>
+    <div class="hero-right">
+      <div class="hero-price-label">BTC / USDT · LIVE</div>
+      <div class="hero-price">${live_price:,.2f}</div>
+      <div class="hero-gap">Live / model close&nbsp; <b>{live_gap:+.3%}</b></div>
+    </div>
+  </div>
+</div>""", unsafe_allow_html=True)
 
-st.markdown(
-    f'<div class="info-strip">📡 <b>{MARKET_SOURCE}</b> · {BINANCE_SYMBOL} · '
-    f'Dernière bougie clôturée : <b>{last_time.strftime("%d/%m/%Y %H:%M")}</b> · '
-    f'Heure locale : <b>{now_tunis.strftime("%H:%M:%S")}</b> · '
-    f'Écart live / clôture modèle : <b>{live_gap:+.3%}</b></div>',
-    unsafe_allow_html=True
-)
+# -----------------------------
+# KPI cards
+# -----------------------------
+kpis = [
+    ("BTC / USDT","₿",f"${live_price:,.2f}",f"{data_status} · live","btc"),
+    ("Prévision +1H","◈",f"${preds[-1]:,.2f}",f"{pct_change:+.2%} vs clôture modèle","green" if pct_change>=0 else "red"),
+    ("Signal ML",signal_icon,f"{signal.split()[0]}",f"Force · {strength}",signal_class),
+    ("RSI 14","◌",f"{rsi:.1f}",f"Volatilité · {volatility:.2%}","blue"),
+    ("Score","✦",f"{score:+d} / 100","ML + tendance + RSI",signal_class),
+]
+html='<div class="kpi-grid">'
+for label,icon,value,note,cls in kpis:
+    html += f'<div class="kpi"><div class="kpi-top"><div class="kpi-label">{label}</div><div class="kpi-icon">{icon}</div></div><div class="kpi-value {cls}">{value}</div><div class="kpi-note">{note}</div></div>'
+html+='</div>'
+st.markdown(html, unsafe_allow_html=True)
 
-tab1, tab2, tab3 = st.tabs([
-    "📈  OVERVIEW",
-    "🧪  WALK-FORWARD",
-    "🤖  ML ANALYTICS",
-])
+# Signal / confidence-style visual (score, not probability)
+st.markdown(f"""
+<div class="signal">
+  <div class="signal-icon {signal_class}">{signal_icon}</div>
+  <div><div class="signal-name">{signal} <span style="color:#718096;font-size:.72rem">· {strength}</span></div><div class="signal-desc">Indice de contexte du modèle · projection +1h : {pct_change:+.2%}</div></div>
+  <div class="score-box"><div class="score-num {signal_class}">{score:+d}</div><div class="score-track"><div class="score-fill" style="width:{score_pct}%"></div></div></div>
+</div>""", unsafe_allow_html=True)
+
+st.markdown(f"""
+<div class="info-strip">
+  <span class="info-item">📡 <b>{MARKET_SOURCE}</b> · {BINANCE_SYMBOL}</span>
+  <span class="info-item">🕐 Bougie clôturée <b>{last_time.strftime("%d/%m %H:%M")}</b></span>
+  <span class="info-item">⌚ Tunis <b>{now_tunis.strftime("%H:%M:%S")}</b></span>
+  <span class="info-item">↔ Écart live/modèle <b>{live_gap:+.3%}</b></span>
+  <span class="info-item">🧪 Mode <b>Simulation</b></span>
+</div>""", unsafe_allow_html=True)
+
+# -----------------------------
+# Main tabs
+# -----------------------------
+tab1, tab2, tab3 = st.tabs(["📊  MARKET OVERVIEW", "🧪  WALK-FORWARD", "🤖  ML ANALYTICS"])
 
 with tab1:
-    st.markdown('<div class="section-title">📈 Marché & prévision</div>', unsafe_allow_html=True)
-    st.markdown(
-        '<div class="section-caption">80 dernières bougies · SMA 20 · RSI · supports/résistances · projection ML</div>',
-        unsafe_allow_html=True
-    )
+    st.markdown('<div class="panel"><div class="panel-head"><div><div class="panel-title">Prix BTC & projection ML</div><div class="panel-sub">80 dernières bougies · tendance · zones techniques · projection 12 horizons</div></div><div class="badge">5 MIN DATA</div></div>', unsafe_allow_html=True)
+    st.plotly_chart(current_chart(df, preds, future_times, supports, resistances), use_container_width=True, config={"displaylogo":False,"modeBarButtonsToRemove":["lasso2d","select2d"]})
+    st.markdown('</div>', unsafe_allow_html=True)
 
-    fig = current_chart(df, preds, future_times, supports, resistances)
-    st.plotly_chart(fig, use_container_width=True, config={
-        "displaylogo": False,
-        "modeBarButtonsToRemove": ["lasso2d", "select2d"],
-    })
-
-    left, right = st.columns([1.7, 1])
-
-    with left:
-        st.markdown('<div class="section-title">🔮 Projection multi-horizon</div>', unsafe_allow_html=True)
-        pred_table = pd.DataFrame({
-            "Horizon": [f"{5 * (i + 1)} min" for i in range(HORIZONS)],
-            "Heure": [t.strftime("%H:%M:%S") for t in future_times],
-            "Prix prédit": [round(float(p), 2) for p in preds],
-            "Variation": [
-                f"{((p - model_reference_price) / model_reference_price):+.2%}"
-                for p in preds
-            ],
-        })
-        st.dataframe(
-            pred_table,
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "Prix prédit": st.column_config.NumberColumn(format="$%.2f"),
-                "Variation": st.column_config.TextColumn(),
-            },
-        )
-
-    with right:
-        st.markdown('<div class="section-title">🎯 Zones techniques</div>', unsafe_allow_html=True)
+    a,b=st.columns([1.75,1])
+    with a:
+        st.markdown('<div class="panel"><div class="panel-head"><div><div class="panel-title">🔮 Projection multi-horizon</div><div class="panel-sub">Prix estimés à partir de la dernière bougie clôturée</div></div><div class="badge">12 HORIZONS</div></div>', unsafe_allow_html=True)
+        pred_table=pd.DataFrame({"Horizon":[f"{5*(i+1)} min" for i in range(HORIZONS)],"Heure":[t.strftime("%H:%M:%S") for t in future_times],"Prix prédit":[round(float(p),2) for p in preds],"Variation":[f"{((p-model_reference_price)/model_reference_price):+.2%}" for p in preds]})
+        st.dataframe(pred_table,use_container_width=True,hide_index=True,column_config={"Prix prédit":st.column_config.NumberColumn(format="$%.2f")})
+        st.markdown('</div>', unsafe_allow_html=True)
+    with b:
+        st.markdown('<div class="panel"><div class="panel-head"><div><div class="panel-title">🎯 Zones techniques</div><div class="panel-sub">Niveaux détectés sur l’historique récent</div></div></div>', unsafe_allow_html=True)
         if supports:
             st.markdown("**Support**")
-            for x in reversed(supports[-3:]):
-                st.markdown(f"`$ {x:,.2f}`")
-        else:
-            st.caption("Aucun support détecté.")
+            for x in reversed(supports[-3:]): st.markdown(f"`$ {x:,.2f}`")
+        else: st.caption("Aucun support détecté.")
         st.markdown("**Résistance**")
         if resistances:
-            for x in reversed(resistances[-3:]):
-                st.markdown(f"`$ {x:,.2f}`")
-        else:
-            st.caption("Aucune résistance détectée.")
+            for x in reversed(resistances[-3:]): st.markdown(f"`$ {x:,.2f}`")
+        else: st.caption("Aucune résistance détectée.")
+        st.markdown('</div>', unsafe_allow_html=True)
 
-    st.markdown(
-        '<div class="info-strip">ℹ️ Le modèle utilise uniquement la dernière bougie 5 minutes <b>clôturée</b>. '
-        'Le prix live est affiché séparément pour éviter de mélanger une bougie en formation avec les features ML.</div>',
-        unsafe_allow_html=True
-    )
+    st.markdown('<div class="info-strip"><span>ℹ️ Le modèle utilise la dernière bougie 5 minutes <b>clôturée</b>.</span><span>Le prix live est affiché séparément et n’est pas injecté dans les features de cette prédiction.</span></div>', unsafe_allow_html=True)
 
 with tab2:
-    st.markdown('<div class="section-title">🧪 Walk-Forward Backtest</div>', unsafe_allow_html=True)
-    st.markdown(
-        '<div class="section-caption">Évaluation chronologique avec réentraînement périodique du modèle.</div>',
-        unsafe_allow_html=True
-    )
-
+    st.markdown('<div class="panel"><div class="panel-head"><div><div class="panel-title">Walk-Forward Backtest</div><div class="panel-sub">Réentraînement chronologique · simulation historique · comparaison Buy & Hold</div></div><div class="badge">NO LIVE ORDERS</div></div>', unsafe_allow_html=True)
     with st.expander("⚙️ Paramètres du test", expanded=True):
-        b1, b2, b3, b4 = st.columns(4)
-        train_size = b1.number_input("Taille entraînement", min_value=500, max_value=1500, value=900, step=100)
-        test_size = b2.number_input("Taille test", min_value=200, max_value=1000, value=600, step=100)
-        retrain_every = b3.number_input("Réentraînement / N bars", min_value=5, max_value=60, value=12, step=1)
-        threshold = b4.number_input("Seuil signal", min_value=0.001, max_value=0.02, value=DEFAULT_THRESHOLD, step=0.001, format="%.3f")
-        fee = st.number_input("Frais simulés / changement de position", min_value=0.0, max_value=0.01, value=DEFAULT_FEE, step=0.0001, format="%.4f")
-
-    st.markdown(
-        '<div class="info-strip">⚠️ Simulation historique uniquement. '
-        'Les résultats passés ne garantissent pas les performances futures.</div>',
-        unsafe_allow_html=True
-    )
-
-    run = st.button("▶  Lancer le Walk-Forward", type="primary", use_container_width=True)
-
+        b1,b2,b3,b4=st.columns(4)
+        train_size=b1.number_input("Taille entraînement",min_value=500,max_value=1500,value=900,step=100)
+        test_size=b2.number_input("Taille test",min_value=200,max_value=1000,value=600,step=100)
+        retrain_every=b3.number_input("Réentraînement / N bars",min_value=5,max_value=60,value=12,step=1)
+        threshold=b4.number_input("Seuil signal",min_value=0.001,max_value=0.02,value=DEFAULT_THRESHOLD,step=0.001,format="%.3f")
+        fee=st.number_input("Frais simulés / changement de position",min_value=0.0,max_value=0.01,value=DEFAULT_FEE,step=0.0001,format="%.4f")
+    st.markdown('<div class="info-strip"><span>⚠️ Résultats historiques uniquement.</span><span>Ils ne constituent pas une garantie de performance future.</span></div>', unsafe_allow_html=True)
+    run=st.button("▶  Lancer le Walk-Forward",type="primary",use_container_width=True)
     if run:
         with st.spinner("Analyse en cours — entraînements ML successifs..."):
-            feature_values = df[FEATURES].values.astype(float)
-            close_values = df["Close"].values.astype(float)
-            index_values = df.index.astype(str).tolist()
-            data_hash = (len(df), str(df.index[0]), str(df.index[-1]), float(df["Close"].iloc[-1]))
-            result = run_walk_forward(
-                data_hash, close_values.tolist(), feature_values.tolist(), index_values,
-                int(train_size), int(test_size), int(retrain_every),
-                float(threshold), float(fee)
-            )
-        if result is None:
-            st.error("Pas assez de données pour ces paramètres.")
-        else:
-            st.session_state["wf_result"] = result
+            feature_values=df[FEATURES].values.astype(float); close_values=df["Close"].values.astype(float); index_values=df.index.astype(str).tolist()
+            data_hash=(len(df),str(df.index[0]),str(df.index[-1]),float(df["Close"].iloc[-1]))
+            result=run_walk_forward(data_hash,close_values.tolist(),feature_values.tolist(),index_values,int(train_size),int(test_size),int(retrain_every),float(threshold),float(fee))
+        if result is None: st.error("Pas assez de données pour ces paramètres.")
+        else: st.session_state["wf_result"]=result
+    st.markdown('</div>', unsafe_allow_html=True)
 
-    result = st.session_state.get("wf_result")
+    result=st.session_state.get("wf_result")
     if result is not None:
-        initial_capital = 10000.0
-        final_capital = initial_capital * result["final_multiple"]
-        bh_final = initial_capital * result["bh_multiple"]
-
-        r1, r2, r3, r4, r5, r6 = st.columns(6)
-        r1.metric("Capital final", f"${final_capital:,.2f}")
-        r2.metric("Rendement", f"{result['final_multiple'] - 1:+.2%}")
-        r3.metric("Buy & Hold", f"{result['bh_multiple'] - 1:+.2%}")
-        r4.metric("Trades", f"{result['trades']}")
-        r5.metric("Win rate", f"{result['win_rate']:.2%}")
-        r6.metric("Max DD", f"{result['max_drawdown']:.2%}")
-
-        st.plotly_chart(backtest_chart(result), use_container_width=True)
-        st.plotly_chart(drawdown_chart(result), use_container_width=True)
-
-        st.markdown('<div class="section-title">Comparaison</div>', unsafe_allow_html=True)
-        comp = pd.DataFrame({
-            "Indicateur": ["Capital final", "Rendement", "Nombre de trades", "Win rate", "Sharpe", "Max drawdown"],
-            "Walk-Forward": [
-                f"${final_capital:,.2f}", f"{result['final_multiple'] - 1:+.2%}",
-                result["trades"], f"{result['win_rate']:.2%}",
-                f"{result['sharpe']:.3f}", f"{result['max_drawdown']:.2%}"
-            ],
-            "Buy & Hold": [
-                f"${bh_final:,.2f}", f"{result['bh_multiple'] - 1:+.2%}", "—", "—", "—", "—"
-            ],
-        })
-        st.dataframe(comp, use_container_width=True, hide_index=True)
+        initial_capital=10000.0; final_capital=initial_capital*result["final_multiple"]; bh_final=initial_capital*result["bh_multiple"]
+        st.markdown('<div class="section-title">Résultats de simulation</div>',unsafe_allow_html=True)
+        r1,r2,r3,r4,r5,r6=st.columns(6)
+        r1.metric("Capital final",f"${final_capital:,.2f}"); r2.metric("Rendement",f"{result['final_multiple']-1:+.2%}"); r3.metric("Buy & Hold",f"{result['bh_multiple']-1:+.2%}"); r4.metric("Trades",f"{result['trades']}"); r5.metric("Win rate",f"{result['win_rate']:.2%}"); r6.metric("Max DD",f"{result['max_drawdown']:.2%}")
+        c1,c2=st.columns([1.55,1])
+        with c1: st.plotly_chart(backtest_chart(result),use_container_width=True)
+        with c2: st.plotly_chart(drawdown_chart(result),use_container_width=True)
+        st.markdown('<div class="panel"><div class="panel-title">Comparaison stratégie / Buy & Hold</div><div class="panel-sub">Lecture synthétique des métriques simulées</div>',unsafe_allow_html=True)
+        comp=pd.DataFrame({"Indicateur":["Capital final","Rendement","Nombre de trades","Win rate","Sharpe","Max drawdown"],"Walk-Forward":[f"${final_capital:,.2f}",f"{result['final_multiple']-1:+.2%}",result["trades"],f"{result['win_rate']:.2%}",f"{result['sharpe']:.3f}",f"{result['max_drawdown']:.2%}"],"Buy & Hold":[f"${bh_final:,.2f}",f"{result['bh_multiple']-1:+.2%}","—","—","—","—"]})
+        st.dataframe(comp,use_container_width=True,hide_index=True)
+        st.markdown('</div>',unsafe_allow_html=True)
 
 with tab3:
-    st.markdown('<div class="section-title">🤖 ML Analytics</div>', unsafe_allow_html=True)
-    st.markdown(
-        '<div class="section-caption">Mesure chronologique des erreurs et de la capacité directionnelle à +1h.</div>',
-        unsafe_allow_html=True
-    )
-
+    st.markdown('<div class="panel"><div class="panel-head"><div><div class="panel-title">🤖 ML Analytics</div><div class="panel-sub">Erreurs chronologiques · précision directionnelle · comportement par horizon</div></div><div class="badge">MODEL EVALUATION</div></div>',unsafe_allow_html=True)
     if "wf_result" not in st.session_state:
         st.info("Lance le Walk-Forward pour calculer les métriques ML.")
     else:
-        result = st.session_state["wf_result"]
-        e1, e2, e3 = st.columns(3)
-        e1.metric("MAE +1h", f"${result['mae']:,.2f}")
-        e2.metric("RMSE +1h", f"${result['rmse']:,.2f}")
-        e3.metric("Direction accuracy", f"{result['direction_acc']:.2%}")
+        result=st.session_state["wf_result"]
+        e1,e2,e3=st.columns(3); e1.metric("MAE +1h",f"${result['mae']:,.2f}"); e2.metric("RMSE +1h",f"${result['rmse']:,.2f}"); e3.metric("Direction accuracy",f"{result['direction_acc']:.2%}")
+        hm=result["horizon_metrics"].copy(); hm["MAE"]=hm["MAE"].round(2); hm["RMSE"]=hm["RMSE"].round(2); hm["Direction accuracy"]=(hm["Direction accuracy"]*100).round(2).astype(str)+"%"
+        st.markdown('<div class="section-title">Performance par horizon</div>',unsafe_allow_html=True)
+        st.dataframe(hm,use_container_width=True,hide_index=True)
+        st.markdown('<div class="section-title">Prix prédit vs prix réel à +1h</div>',unsafe_allow_html=True)
+        fig_eval=go.Figure(); fig_eval.add_trace(go.Scatter(x=result["index"],y=result["actual"],mode="lines",name="Réel +1h",line=dict(width=2))); fig_eval.add_trace(go.Scatter(x=result["index"],y=result["pred"],mode="lines",name="Prédit +1h",line=dict(width=2,dash="dot")))
+        fig_eval.update_layout(height=470,template="plotly_dark",paper_bgcolor="rgba(0,0,0,0)",plot_bgcolor="rgba(13,17,23,.55)",margin=dict(l=10,r=10,t=25,b=10),hovermode="x unified",legend=dict(orientation="h",y=1.02,x=0))
+        fig_eval.update_xaxes(showgrid=True,gridcolor="rgba(148,163,184,.08)",zeroline=False); fig_eval.update_yaxes(showgrid=True,gridcolor="rgba(148,163,184,.08)",zeroline=False)
+        st.plotly_chart(fig_eval,use_container_width=True)
+    st.markdown('</div>',unsafe_allow_html=True)
 
-        st.markdown('<div class="section-title">Performance par horizon</div>', unsafe_allow_html=True)
-        hm = result["horizon_metrics"].copy()
-        hm["MAE"] = hm["MAE"].round(2)
-        hm["RMSE"] = hm["RMSE"].round(2)
-        hm["Direction accuracy"] = (hm["Direction accuracy"] * 100).round(2).astype(str) + "%"
-        st.dataframe(hm, use_container_width=True, hide_index=True)
-
-        st.markdown('<div class="section-title">Prix prédit vs prix réel à +1h</div>', unsafe_allow_html=True)
-        fig_eval = go.Figure()
-        fig_eval.add_trace(go.Scatter(
-            x=result["index"], y=result["actual"], mode="lines", name="Réel +1h",
-            line=dict(width=2)
-        ))
-        fig_eval.add_trace(go.Scatter(
-            x=result["index"], y=result["pred"], mode="lines", name="Prédit +1h",
-            line=dict(width=2, dash="dot")
-        ))
-        fig_eval.update_layout(
-            height=470, template="plotly_dark",
-            paper_bgcolor="rgba(0,0,0,0)",
-            plot_bgcolor="rgba(13,17,23,0.55)",
-            xaxis_title="Temps", yaxis_title="Prix BTC",
-            margin=dict(l=10, r=10, t=30, b=10),
-            hovermode="x unified",
-            legend=dict(orientation="h", y=1.02, x=0),
-        )
-        fig_eval.update_xaxes(showgrid=True, gridcolor="rgba(148,163,184,.08)", zeroline=False)
-        fig_eval.update_yaxes(showgrid=True, gridcolor="rgba(148,163,184,.08)", zeroline=False)
-        st.plotly_chart(fig_eval, use_container_width=True)
-
-# Technical details moved to a compact footer
 with st.expander("ℹ️ Détails techniques du modèle"):
-    a, b, c = st.columns(3)
-    a.write(f"**Type :** `{type(model).__name__}`")
-    a.write(f"**Features :** `{getattr(model, 'n_features_in_', 'N/A')}`")
-    b.write(f"**Sorties :** `{len(getattr(model, 'estimators_', []))}`")
-    c.write(f"**Source :** `{MARKET_SOURCE} — {BINANCE_SYMBOL}`")
-    if hasattr(model, "estimator"):
-        c.write(
-            f"**Random Forest :** {model.estimator.n_estimators} arbres · "
-            f"depth={model.estimator.max_depth}"
-        )
-    st.write("**Features utilisées :**", FEATURES)
+    a,b,c=st.columns(3); a.write(f"**Type :** `{type(model).__name__}`"); a.write(f"**Features :** `{getattr(model,'n_features_in_','N/A')}`"); b.write(f"**Sorties :** `{len(getattr(model,'estimators_',[]))}`"); c.write(f"**Source :** `{MARKET_SOURCE} — {BINANCE_SYMBOL}`")
+    if hasattr(model,"estimator"): c.write(f"**Random Forest :** {model.estimator.n_estimators} arbres · depth={model.estimator.max_depth}")
+    st.write("**Features utilisées :**",FEATURES)
 
-st.markdown(
-    '<div class="footer">BTC Intelligence V3 · Market data Binance · '
-    'Dashboard éducatif et simulation historique · Aucun ordre réel exécuté.</div>',
-    unsafe_allow_html=True
-)
+st.markdown('<div class="footer">BTC Intelligence V3.1 · Binance public market data · Dashboard éducatif et simulation historique · Aucun ordre réel exécuté.</div>',unsafe_allow_html=True)
