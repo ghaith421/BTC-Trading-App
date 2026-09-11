@@ -26,7 +26,7 @@ warnings.filterwarnings("ignore")
 # ============================================================
 
 st.set_page_config(
-    page_title="BTC Intelligence — V3",
+    page_title="BTC Intelligence — V3.2",
     page_icon="₿",
     layout="wide",
 )
@@ -261,6 +261,167 @@ def predict_current(df):
     ]
 
     return preds, future_times, model_reference_price
+
+
+
+# ============================================================
+# FORECAST QUALITY / UNCERTAINTY
+# ============================================================
+def get_ensemble_forecast(df):
+    """
+    Returns the model forecast plus an empirical dispersion estimate
+    from the individual Random Forest trees.
+
+    IMPORTANT:
+    Tree dispersion is NOT a calibrated probability. It is used only
+    as an uncertainty / model-agreement indicator.
+    """
+    X = df[FEATURES].iloc[-1:].values
+    Xs = scaler.transform(X)
+
+    means = []
+    lows = []
+    highs = []
+    dispersions = []
+
+    estimators = getattr(model, "estimators_", [])
+    for est in estimators:
+        if hasattr(est, "estimators_") and len(est.estimators_) > 1:
+            tree_preds = np.array([
+                float(tree.predict(Xs)[0]) for tree in est.estimators_
+            ])
+            means.append(float(np.mean(tree_preds)))
+            lows.append(float(np.percentile(tree_preds, 10)))
+            highs.append(float(np.percentile(tree_preds, 90)))
+            dispersions.append(float(np.std(tree_preds)))
+        else:
+            value = float(est.predict(Xs)[0])
+            means.append(value)
+            lows.append(value)
+            highs.append(value)
+            dispersions.append(0.0)
+
+    preds = np.asarray(means, dtype=float)
+    p10 = np.asarray(lows, dtype=float)
+    p90 = np.asarray(highs, dtype=float)
+    dispersion = np.asarray(dispersions, dtype=float)
+
+    reference = float(df["Close"].iloc[-1])
+    return preds, p10, p90, dispersion, reference
+
+
+def forecast_quality(df, preds, p10, p90, dispersion):
+    """
+    Educational forecast-quality score.
+
+    It combines:
+    - agreement of RF trees
+    - agreement between short and long horizons
+    - trend alignment
+    - RSI context
+    - volatility regime
+
+    It is deliberately called QUALITY, not probability of profit.
+    """
+    last = df.iloc[-1]
+    price = float(last["Close"])
+
+    # 1) Model dispersion: lower relative dispersion = better agreement.
+    rel_disp = float(np.mean(dispersion) / max(price, 1e-9))
+    dispersion_quality = 100.0 * np.clip(1.0 - rel_disp / 0.004, 0, 1)
+
+    # 2) Horizon consistency: compare the signs of consecutive forecast moves.
+    moves = np.diff(np.r_[price, preds]) / price
+    positive = np.sum(moves > 0)
+    negative = np.sum(moves < 0)
+    direction_consensus = max(positive, negative) / max(len(moves), 1)
+    consensus_quality = direction_consensus * 100.0
+
+    # 3) Trend alignment.
+    sma5 = float(last["SMA_5"])
+    sma20 = float(last["SMA_20"])
+    trend_up = sma5 > sma20
+    forecast_up = float(preds[-1]) > price
+    trend_quality = 100.0 if trend_up == forecast_up else 35.0
+
+    # 4) RSI is used as context, not as a buy/sell trigger.
+    rsi = float(last["RSI"])
+    rsi_quality = 100.0 if 35 <= rsi <= 65 else 65.0
+
+    # 5) Volatility regime: extreme volatility lowers reliability.
+    vol = float(last["Volatility"])
+    volatility_quality = 100.0 * np.clip(1.0 - max(vol - 0.004, 0) / 0.012, 0, 1)
+
+    quality = (
+        0.35 * dispersion_quality
+        + 0.25 * consensus_quality
+        + 0.20 * trend_quality
+        + 0.10 * rsi_quality
+        + 0.10 * volatility_quality
+    )
+    quality = float(np.clip(quality, 0, 100))
+
+    if quality >= 75:
+        label = "ÉLEVÉE"
+    elif quality >= 55:
+        label = "MOYENNE"
+    else:
+        label = "FAIBLE"
+
+    # Direction is only considered meaningful when the move exceeds
+    # both the model uncertainty and a small practical noise floor.
+    horizon_move = (float(preds[-1]) - price) / price
+    uncertainty = (float(p90[-1]) - float(p10[-1])) / (2 * price)
+    noise_floor = max(0.0015, uncertainty)
+
+    if abs(horizon_move) < noise_floor:
+        direction = "INCERTAINE"
+    elif horizon_move > 0:
+        direction = "HAUSSIÈRE"
+    else:
+        direction = "BAISSIÈRE"
+
+    return {
+        "quality": quality,
+        "label": label,
+        "direction": direction,
+        "uncertainty": uncertainty,
+        "dispersion_rel": rel_disp,
+        "consensus": direction_consensus,
+    }
+
+
+def decision_framework(df, preds, p10, p90, quality_info):
+    """
+    Produces an educational decision state:
+    FAVORABLE / ATTENDRE / PRUDENCE.
+
+    This is deliberately not a financial recommendation.
+    """
+    price = float(df["Close"].iloc[-1])
+    move = (float(preds[-1]) - price) / price
+    band = quality_info["uncertainty"]
+
+    # Require the forecast to clear the uncertainty band.
+    signal_strength = abs(move) / max(band, 0.001)
+
+    if quality_info["quality"] < 55:
+        state = "PRUDENCE"
+        reason = "Qualité du modèle insuffisante"
+    elif signal_strength < 1.25:
+        state = "ATTENDRE"
+        reason = "Projection trop proche de l'incertitude"
+    elif quality_info["direction"] == "HAUSSIÈRE":
+        state = "SCÉNARIO HAUSSIER"
+        reason = "Projection au-dessus de la zone d'incertitude"
+    elif quality_info["direction"] == "BAISSIÈRE":
+        state = "SCÉNARIO BAISSIER"
+        reason = "Projection sous la zone d'incertitude"
+    else:
+        state = "ATTENDRE"
+        reason = "Direction non confirmée"
+
+    return state, reason, signal_strength
 
 
 # ============================================================
@@ -681,7 +842,7 @@ def drawdown_chart(result):
 
 # ============================================================
 # ============================================================
-# V3.1 — PREMIUM TERMINAL UI
+# V3.2 — PREMIUM TERMINAL UI
 # ============================================================
 
 st.markdown(r"""
@@ -759,7 +920,7 @@ hr { border-color:var(--line); }
 # Sidebar
 # -----------------------------
 with st.sidebar:
-    st.markdown('<div class="brand"><div class="brand-icon">₿</div><div><div class="brand-name">BTC Intelligence</div><div class="brand-sub">V3.1 • ANALYTICS TERMINAL</div></div></div>', unsafe_allow_html=True)
+    st.markdown('<div class="brand"><div class="brand-icon">₿</div><div><div class="brand-name">BTC Intelligence</div><div class="brand-sub">V3.2 • FORECAST LAB</div></div></div>', unsafe_allow_html=True)
     st.divider()
     st.markdown("**⚙️ CONTRÔLE DU DASHBOARD**")
     refresh_info = st.select_slider("Actualisation", options=["5s","15s","30s","60s"], value="30s")
@@ -802,8 +963,11 @@ except Exception:
     live_price = float(df["Close"].iloc[-1])
     data_status = "Dernière clôture"
 
-preds, future_times, model_reference_price = predict_current(df)
+preds, p10, p90, tree_dispersion, model_reference_price = get_ensemble_forecast(df)
+future_times = [df.index[-1] + timedelta(minutes=BAR_MINUTES * (i + 1)) for i in range(HORIZONS)]
 supports, resistances = detect_supports_resistances(df)
+quality_info = forecast_quality(df, preds, p10, p90, tree_dispersion)
+decision_state, decision_reason, signal_strength = decision_framework(df, preds, p10, p90, quality_info)
 signal, strength, score, pct_change = calculate_signal(df, preds)
 live_gap = (live_price - model_reference_price) / model_reference_price
 rsi = float(df["RSI"].iloc[-1])
@@ -811,9 +975,9 @@ volatility = float(df["Volatility"].iloc[-1])
 last_time = df.index[-1]
 now_tunis = pd.Timestamp.now(tz=TUNIS_TZ)
 
-signal_class = "green" if score >= 50 else "red" if score <= -50 else "yellow"
-signal_icon = "↑" if score >= 50 else "↓" if score <= -50 else "→"
-score_pct = min(100, max(0, int(50 + score / 2)))
+signal_class = "green" if quality_info["direction"] == "HAUSSIÈRE" else "red" if quality_info["direction"] == "BAISSIÈRE" else "yellow"
+signal_icon = "↑" if quality_info["direction"] == "HAUSSIÈRE" else "↓" if quality_info["direction"] == "BAISSIÈRE" else "→"
+score_pct = int(np.clip(quality_info["quality"], 0, 100))
 
 # -----------------------------
 # Hero
@@ -840,9 +1004,9 @@ st.markdown(f"""
 kpis = [
     ("BTC / USDT","₿",f"${live_price:,.2f}",f"{data_status} · live","btc"),
     ("Prévision +1H","◈",f"${preds[-1]:,.2f}",f"{pct_change:+.2%} vs clôture modèle","green" if pct_change>=0 else "red"),
-    ("Signal ML",signal_icon,f"{signal.split()[0]}",f"Force · {strength}",signal_class),
-    ("RSI 14","◌",f"{rsi:.1f}",f"Volatilité · {volatility:.2%}","blue"),
-    ("Score","✦",f"{score:+d} / 100","ML + tendance + RSI",signal_class),
+    ("Scénario",signal_icon,f"{decision_state}",decision_reason,signal_class),
+    ("Qualité prévision","◉",f"{quality_info["quality"]:.0f}/100",f"Confiance modèle : {quality_info["label"]}","blue"),
+    ("Incertitude +1H","≈",f"±{quality_info["uncertainty"]:.2%}",f"Dispersion ensemble","yellow"),
 ]
 html='<div class="kpi-grid">'
 for label,icon,value,note,cls in kpis:
@@ -854,8 +1018,10 @@ st.markdown(html, unsafe_allow_html=True)
 st.markdown(f"""
 <div class="signal">
   <div class="signal-icon {signal_class}">{signal_icon}</div>
-  <div><div class="signal-name">{signal} <span style="color:#718096;font-size:.72rem">· {strength}</span></div><div class="signal-desc">Indice de contexte du modèle · projection +1h : {pct_change:+.2%}</div></div>
-  <div class="score-box"><div class="score-num {signal_class}">{score:+d}</div><div class="score-track"><div class="score-fill" style="width:{score_pct}%"></div></div></div>
+  <div><div class="signal-name">{decision_state} <span style="color:#718096;font-size:.72rem">· qualité {quality_info["label"]}</span></div>
+  <div class="signal-desc">{decision_reason} · projection +1h : {pct_change:+.2%} · zone d'incertitude : ±{quality_info["uncertainty"]:.2%}</div></div>
+  <div class="score-box"><div class="score-num {signal_class}">{quality_info["quality"]:.0f}</div>
+  <div class="score-track"><div class="score-fill" style="width:{score_pct}%"></div></div></div>
 </div>""", unsafe_allow_html=True)
 
 st.markdown(f"""
@@ -875,13 +1041,44 @@ tab1, tab2, tab3 = st.tabs(["📊  MARKET OVERVIEW", "🧪  WALK-FORWARD", "🤖
 with tab1:
     st.markdown('<div class="panel"><div class="panel-head"><div><div class="panel-title">Prix BTC & projection ML</div><div class="panel-sub">80 dernières bougies · tendance · zones techniques · projection 12 horizons</div></div><div class="badge">5 MIN DATA</div></div>', unsafe_allow_html=True)
     st.plotly_chart(current_chart(df, preds, future_times, supports, resistances), use_container_width=True, config={"displaylogo":False,"modeBarButtonsToRemove":["lasso2d","select2d"]})
+
+    st.markdown('<div class="panel"><div class="panel-head"><div><div class="panel-title">🛡️ Zone de prévision & incertitude</div><div class="panel-sub">Dispersion des arbres Random Forest — indicateur de fiabilité, pas une probabilité de gain</div></div><div class="badge">UNCERTAINTY</div></div>', unsafe_allow_html=True)
+    band_fig = go.Figure()
+    band_fig.add_trace(go.Scatter(
+        x=future_times + future_times[::-1],
+        y=list(p90) + list(p10[::-1]),
+        fill="toself",
+        fillcolor="rgba(100,116,139,0.18)",
+        line=dict(color="rgba(0,0,0,0)"),
+        hoverinfo="skip",
+        name="Zone d'incertitude"
+    ))
+    band_fig.add_trace(go.Scatter(
+        x=future_times, y=preds, mode="lines+markers",
+        name="Prévision centrale",
+        line=dict(width=3)
+    ))
+    band_fig.update_layout(
+        height=360, template="plotly_dark", margin=dict(l=10,r=10,t=20,b=10),
+        xaxis_title="Horizon", yaxis_title="BTC / USDT",
+        legend=dict(orientation="h", y=1.08)
+    )
+    st.plotly_chart(band_fig, use_container_width=True, config={"displaylogo":False})
+    st.markdown('</div>', unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
     a,b=st.columns([1.75,1])
     with a:
         st.markdown('<div class="panel"><div class="panel-head"><div><div class="panel-title">🔮 Projection multi-horizon</div><div class="panel-sub">Prix estimés à partir de la dernière bougie clôturée</div></div><div class="badge">12 HORIZONS</div></div>', unsafe_allow_html=True)
-        pred_table=pd.DataFrame({"Horizon":[f"{5*(i+1)} min" for i in range(HORIZONS)],"Heure":[t.strftime("%H:%M:%S") for t in future_times],"Prix prédit":[round(float(p),2) for p in preds],"Variation":[f"{((p-model_reference_price)/model_reference_price):+.2%}" for p in preds]})
-        st.dataframe(pred_table,use_container_width=True,hide_index=True,column_config={"Prix prédit":st.column_config.NumberColumn(format="$%.2f")})
+        pred_table=pd.DataFrame({
+            "Horizon":[f"{5*(i+1)} min" for i in range(HORIZONS)],
+            "Heure":[t.strftime("%H:%M:%S") for t in future_times],
+            "Prévision":[round(float(p),2) for p in preds],
+            "Borne basse":[round(float(p),2) for p in p10],
+            "Borne haute":[round(float(p),2) for p in p90],
+            "Variation":[f"{((p-model_reference_price)/model_reference_price):+.2%}" for p in preds],
+        })
+        st.dataframe(pred_table,use_container_width=True,hide_index=True,column_config={"Prévision":st.column_config.NumberColumn(format="$%.2f"),"Borne basse":st.column_config.NumberColumn(format="$%.2f"),"Borne haute":st.column_config.NumberColumn(format="$%.2f")})
         st.markdown('</div>', unsafe_allow_html=True)
     with b:
         st.markdown('<div class="panel"><div class="panel-head"><div><div class="panel-title">🎯 Zones techniques</div><div class="panel-sub">Niveaux détectés sur l’historique récent</div></div></div>', unsafe_allow_html=True)
@@ -896,6 +1093,25 @@ with tab1:
         st.markdown('</div>', unsafe_allow_html=True)
 
     st.markdown('<div class="info-strip"><span>ℹ️ Le modèle utilise la dernière bougie 5 minutes <b>clôturée</b>.</span><span>Le prix live est affiché séparément et n’est pas injecté dans les features de cette prédiction.</span></div>', unsafe_allow_html=True)
+
+    st.markdown(f"""
+    <div class="info-strip">
+      <span>🧠 <b>Qualité modèle :</b> {quality_info["quality"]:.0f}/100 ({quality_info["label"]})</span>
+      <span>📐 <b>Incertitude :</b> ±{quality_info["uncertainty"]:.2%}</span>
+      <span>🧭 <b>Direction :</b> {quality_info["direction"]}</span>
+      <span>🔎 <b>Consensus :</b> {quality_info["consensus"]:.0%}</span>
+    </div>
+    <div class="panel" style="margin-top:12px">
+      <div class="panel-head">
+        <div><div class="panel-title">🧭 Aide à l'interprétation</div>
+        <div class="panel-sub">Règle pédagogique : une projection n'est retenue comme scénario que si elle dépasse raisonnablement sa zone d'incertitude.</div></div>
+        <div class="badge">{decision_state}</div>
+      </div>
+      <div style="color:#9aa8ba;font-size:.84rem;line-height:1.7">
+        <b>Lecture :</b> {decision_reason}. Le score de qualité mesure l'accord interne du modèle et le contexte technique ; 
+        <b>ce n'est pas une probabilité de réussite</b>. Plus la zone d'incertitude est large, plus la projection doit être considérée avec prudence.
+      </div>
+    </div>""", unsafe_allow_html=True)
 
 with tab2:
     st.markdown('<div class="panel"><div class="panel-head"><div><div class="panel-title">Walk-Forward Backtest</div><div class="panel-sub">Réentraînement chronologique · simulation historique · comparaison Buy & Hold</div></div><div class="badge">NO LIVE ORDERS</div></div>', unsafe_allow_html=True)
