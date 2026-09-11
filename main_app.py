@@ -21,12 +21,12 @@ import urllib.request
 warnings.filterwarnings("ignore")
 
 # ============================================================
-# BTC ALGO TRADING - V2.6.1
+# BTC INTELLIGENCE - V3 DESIGN
 # Educational / simulation dashboard - no order execution
 # ============================================================
 
 st.set_page_config(
-    page_title="BTC Algo Trading V2.6.1",
+    page_title="BTC Intelligence — V3",
     page_icon="₿",
     layout="wide",
 )
@@ -53,7 +53,7 @@ BAR_MINUTES = 5
 DEFAULT_THRESHOLD = 0.003
 DEFAULT_FEE = 0.001
 
-# V2.6: Binance Spot public market data as the single reference source
+# V3: Binance Spot public market data as the single reference source
 MARKET_SOURCE = "Binance Spot"
 BINANCE_BASE_URLS = [
     "https://data-api.binance.vision",
@@ -111,7 +111,7 @@ def fetch_binance_klines(limit=1000):
         req = urllib.request.Request(
             url,
             headers={
-                "User-Agent": "Mozilla/5.0 BTC-Algo-Trading-V2.6.1",
+                "User-Agent": "Mozilla/5.0 BTC-Algo-Trading-V3",
                 "Accept": "application/json",
             },
             method="GET",
@@ -167,7 +167,7 @@ def fetch_binance_ticker():
         req = urllib.request.Request(
             url,
             headers={
-                "User-Agent": "Mozilla/5.0 BTC-Algo-Trading-V2.6.1",
+                "User-Agent": "Mozilla/5.0 BTC-Algo-Trading-V3",
                 "Accept": "application/json",
             },
             method="GET",
@@ -582,10 +582,29 @@ def current_chart(df, preds, future_times, supports, resistances):
     fig.add_hline(y=30, line_dash="dash", opacity=0.5, row=2, col=1)
 
     fig.update_layout(
-        height=720,
+        height=680,
         template="plotly_dark",
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(13,17,23,0.55)",
         xaxis_rangeslider_visible=False,
-        margin=dict(l=20, r=20, t=30, b=20),
+        margin=dict(l=10, r=10, t=30, b=10),
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.01,
+            xanchor="left",
+            x=0,
+            bgcolor="rgba(0,0,0,0)",
+        ),
+        hovermode="x unified",
+    )
+    fig.update_xaxes(
+        showgrid=True, gridcolor="rgba(148,163,184,0.08)",
+        zeroline=False
+    )
+    fig.update_yaxes(
+        showgrid=True, gridcolor="rgba(148,163,184,0.08)",
+        zeroline=False
     )
 
     return fig
@@ -613,11 +632,18 @@ def backtest_chart(result):
     )
 
     fig.update_layout(
-        title="Courbe de performance normalisée",
-        height=450,
+        title="Performance normalisée",
+        height=430,
         template="plotly_dark",
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(13,17,23,0.55)",
         yaxis_title="Capital / Capital initial",
+        margin=dict(l=10, r=10, t=50, b=10),
+        hovermode="x unified",
+        legend=dict(orientation="h", y=1.02, x=0),
     )
+    fig.update_xaxes(showgrid=True, gridcolor="rgba(148,163,184,0.08)", zeroline=False)
+    fig.update_yaxes(showgrid=True, gridcolor="rgba(148,163,184,0.08)", zeroline=False)
 
     return fig
 
@@ -637,32 +663,269 @@ def drawdown_chart(result):
 
     fig.update_layout(
         title="Drawdown",
-        height=350,
+        height=320,
         template="plotly_dark",
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(13,17,23,0.55)",
         yaxis_title="Drawdown (%)",
+        margin=dict(l=10, r=10, t=50, b=10),
+        hovermode="x unified",
     )
+    fig.update_xaxes(showgrid=True, gridcolor="rgba(148,163,184,0.08)", zeroline=False)
+    fig.update_yaxes(showgrid=True, gridcolor="rgba(148,163,184,0.08)", zeroline=False)
 
     return fig
 
 
 # ============================================================
-# APP
+
+# ============================================================
+# V3 — PREMIUM UI
 # ============================================================
 
-st.title("₿ BTC Algo Trading — V2.6.1")
-st.caption(
-    "Dashboard éducatif et simulation historique. "
-    "Aucun ordre réel n'est exécuté."
-)
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+html, body, [class*="css"] {
+    font-family: 'Inter', sans-serif;
+}
+
+.stApp {
+    background:
+        radial-gradient(circle at 8% 0%, rgba(247,147,26,.10), transparent 28%),
+        radial-gradient(circle at 92% 8%, rgba(59,130,246,.08), transparent 24%),
+        #070b12;
+}
+
+.block-container {
+    max-width: 1500px;
+    padding-top: 1.2rem;
+    padding-bottom: 2.5rem;
+}
+
+section[data-testid="stSidebar"] {
+    background: #0b1018;
+    border-right: 1px solid rgba(148,163,184,.10);
+}
+
+section[data-testid="stSidebar"] > div {
+    padding-top: 1.5rem;
+}
+
+.hero {
+    padding: 1.4rem 1.6rem;
+    border: 1px solid rgba(148,163,184,.13);
+    border-radius: 22px;
+    background: linear-gradient(135deg, rgba(15,23,42,.96), rgba(10,15,24,.88));
+    box-shadow: 0 20px 60px rgba(0,0,0,.22);
+    margin-bottom: 1rem;
+}
+
+.hero-title {
+    font-size: 2.05rem;
+    font-weight: 800;
+    letter-spacing: -.04em;
+    margin: 0;
+}
+
+.hero-subtitle {
+    color: #94a3b8;
+    margin-top: .25rem;
+    font-size: .92rem;
+}
+
+.live-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: .45rem;
+    padding: .38rem .72rem;
+    border-radius: 999px;
+    background: rgba(34,197,94,.09);
+    border: 1px solid rgba(34,197,94,.20);
+    color: #86efac;
+    font-size: .78rem;
+    font-weight: 700;
+}
+
+.kpi {
+    min-height: 118px;
+    padding: 1rem 1.05rem;
+    border-radius: 18px;
+    border: 1px solid rgba(148,163,184,.12);
+    background: linear-gradient(145deg, rgba(17,24,39,.94), rgba(10,15,24,.94));
+    box-shadow: 0 12px 35px rgba(0,0,0,.16);
+}
+
+.kpi-label {
+    color: #94a3b8;
+    font-size: .72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+}
+
+.kpi-value {
+    color: #f8fafc;
+    font-size: 1.45rem;
+    font-weight: 800;
+    margin-top: .35rem;
+}
+
+.kpi-value.btc { color: #f7931a; }
+.kpi-value.green { color: #4ade80; }
+.kpi-value.red { color: #f87171; }
+.kpi-value.yellow { color: #facc15; }
+
+.kpi-note {
+    color: #64748b;
+    font-size: .70rem;
+    margin-top: .22rem;
+}
+
+.section-title {
+    font-size: 1.08rem;
+    font-weight: 800;
+    color: #e5e7eb;
+    margin: 1rem 0 .65rem;
+}
+
+.section-caption {
+    color: #64748b;
+    font-size: .78rem;
+    margin-top: -.35rem;
+    margin-bottom: .7rem;
+}
+
+.signal-card {
+    border-radius: 18px;
+    padding: 1rem 1.15rem;
+    border: 1px solid rgba(148,163,184,.13);
+    background: #0d131d;
+    margin: .2rem 0 1rem;
+}
+
+.signal-main {
+    font-size: 1.35rem;
+    font-weight: 800;
+}
+
+.signal-meta {
+    color: #94a3b8;
+    font-size: .78rem;
+    margin-top: .3rem;
+}
+
+.score-track {
+    height: 7px;
+    background: #1e293b;
+    border-radius: 99px;
+    overflow: hidden;
+    margin-top: .6rem;
+}
+
+.score-fill {
+    height: 100%;
+    border-radius: 99px;
+}
+
+.info-strip {
+    padding: .65rem .9rem;
+    border-radius: 12px;
+    background: rgba(30,41,59,.45);
+    border: 1px solid rgba(148,163,184,.09);
+    color: #94a3b8;
+    font-size: .76rem;
+    margin-bottom: .8rem;
+}
+
+div[data-baseweb="tab-list"] {
+    gap: 6px;
+    border-bottom: 1px solid rgba(148,163,184,.10);
+}
+
+button[data-baseweb="tab"] {
+    border-radius: 10px 10px 0 0;
+    padding: .75rem 1rem;
+}
+
+div[data-testid="stMetric"] {
+    background: rgba(17,24,39,.75);
+    border: 1px solid rgba(148,163,184,.10);
+    border-radius: 14px;
+    padding: .7rem .8rem;
+}
+
+.stButton > button {
+    border-radius: 11px;
+    font-weight: 700;
+}
+
+div[data-testid="stDataFrame"] {
+    border-radius: 14px;
+    overflow: hidden;
+}
+
+hr {
+    border-color: rgba(148,163,184,.08);
+}
+
+.footer {
+    text-align: center;
+    color: #475569;
+    font-size: .70rem;
+    padding-top: 1.4rem;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# Sidebar = compact control center
+with st.sidebar:
+    st.markdown("## ₿ BTC Intelligence")
+    st.caption("V3 • Market analytics")
+    st.divider()
+    st.markdown("### ⚙️ Configuration")
+    refresh_info = st.select_slider(
+        "Actualisation des données",
+        options=["5s", "15s", "30s", "60s"],
+        value="30s",
+    )
+    auto_refresh = st.toggle("Actualisation automatique", value=False)
+    st.divider()
+    st.markdown("### 📡 Source")
+    st.markdown(f"**{MARKET_SOURCE}**")
+    st.caption(f"{BINANCE_SYMBOL} • bougies {BAR_MINUTES} min")
+    st.divider()
+    st.markdown("### 🧠 Modèle")
+    st.caption("Random Forest • 12 horizons")
+    st.caption("Référence : dernière bougie clôturée")
+    st.divider()
+    st.caption("Dashboard éducatif / simulation uniquement.")
+
+if auto_refresh:
+    refresh_seconds = {"5s": 5, "15s": 15, "30s": 30, "60s": 60}[refresh_info]
+    st.markdown(
+        f'<meta http-equiv="refresh" content="{refresh_seconds}">',
+        unsafe_allow_html=True
+    )
+
+st.markdown("""
+<div class="hero">
+    <div class="live-pill">● MARKET DATA CONNECTED</div>
+    <div class="hero-title">₿ BTC Intelligence</div>
+    <div class="hero-subtitle">
+        Market overview · Machine Learning · Walk-Forward Analytics
+    </div>
+</div>
+""", unsafe_allow_html=True)
 
 try:
     df = fetch_data()
 except Exception as e:
     st.error("⚠️ Impossible de récupérer les données de marché.")
     st.warning(
-        "Le problème vient de la connexion entre Streamlit Cloud et "
-        "les endpoints Binance, pas du modèle ML. V2.6.1 essaie "
-        "plusieurs endpoints publics officiels Binance."
+        "La connexion aux endpoints publics Binance a échoué. "
+        "Le modèle ML n'est pas en cause."
     )
     with st.expander("Détails techniques"):
         st.code(str(e))
@@ -674,429 +937,274 @@ if df is None or df.empty:
 
 try:
     live_price = fetch_binance_ticker()
-    data_status = "🟢 Binance connecté"
-except Exception as e:
+    data_status = "🟢 Connecté"
+except Exception:
     live_price = float(df["Close"].iloc[-1])
-    data_status = "🟠 Prix live indisponible — dernière clôture utilisée"
+    data_status = "🟠 Dernière clôture"
 
-# Current state
 preds, future_times, model_reference_price = predict_current(df)
-
-# Important: prediction is relative to the completed candle used by the model.
-# The live market price is displayed separately.
-last_price = live_price
 supports, resistances = detect_supports_resistances(df)
-
-signal, strength, score, pct_change = calculate_signal(
-    df, preds
-)
-
-# Live-vs-model-reference diagnostic
+signal, strength, score, pct_change = calculate_signal(df, preds)
 live_gap = (live_price - model_reference_price) / model_reference_price
-
+rsi = float(df["RSI"].iloc[-1])
+volatility = float(df["Volatility"].iloc[-1])
 last_time = df.index[-1]
 now_tunis = pd.Timestamp.now(tz=TUNIS_TZ)
 
-# ============================================================
-# HEADER METRICS
-# ============================================================
+signal_class = "green" if score >= 50 else "red" if score <= -50 else "yellow"
+signal_icon = "↑" if score >= 50 else "↓" if score <= -50 else "→"
+score_pct = min(100, max(0, int(50 + score / 2)))
 
-c1, c2, c3, c4, c5 = st.columns(5)
+# KPI row
+k1, k2, k3, k4, k5 = st.columns(5)
+with k1:
+    st.markdown(f"""
+    <div class="kpi">
+      <div class="kpi-label">BTC / USDT</div>
+      <div class="kpi-value btc">${live_price:,.2f}</div>
+      <div class="kpi-note">{data_status} • live</div>
+    </div>""", unsafe_allow_html=True)
+with k2:
+    st.markdown(f"""
+    <div class="kpi">
+      <div class="kpi-label">Prévision +1H</div>
+      <div class="kpi-value {'green' if pct_change >= 0 else 'red'}">${preds[-1]:,.2f}</div>
+      <div class="kpi-note">{pct_change:+.2%} vs clôture modèle</div>
+    </div>""", unsafe_allow_html=True)
+with k3:
+    st.markdown(f"""
+    <div class="kpi">
+      <div class="kpi-label">Signal ML</div>
+      <div class="kpi-value {signal_class}">{signal_icon} {signal.split()[0]}</div>
+      <div class="kpi-note">Force : {strength}</div>
+    </div>""", unsafe_allow_html=True)
+with k4:
+    st.markdown(f"""
+    <div class="kpi">
+      <div class="kpi-label">RSI 14</div>
+      <div class="kpi-value">{rsi:.1f}</div>
+      <div class="kpi-note">Volatilité : {volatility:.2%}</div>
+    </div>""", unsafe_allow_html=True)
+with k5:
+    st.markdown(f"""
+    <div class="kpi">
+      <div class="kpi-label">Score</div>
+      <div class="kpi-value {signal_class}">{score:+d} / 100</div>
+      <div class="kpi-note">Indice combiné ML + tendance + RSI</div>
+    </div>""", unsafe_allow_html=True)
 
-c1.metric("Prix BTC", f"${last_price:,.2f}")
-c2.metric("RSI", f"{df['RSI'].iloc[-1]:.2f}")
-c3.metric("Volatilité", f"{df['Volatility'].iloc[-1]:.4%}")
-c4.metric("Variation ML 1h", f"{pct_change:.2%}")
-c5.metric("Score", f"{score:+d}")
+# Signal panel
+st.markdown(f"""
+<div class="signal-card">
+  <div class="signal-main">{signal_icon} {signal} <span style="color:#94a3b8;font-size:.85rem;">• {strength}</span></div>
+  <div class="signal-meta">Score de contexte : {score:+d} · Projection 1h : {pct_change:+.2%}</div>
+  <div class="score-track"><div class="score-fill" style="width:{score_pct}%;background:#f7931a;"></div></div>
+</div>
+""", unsafe_allow_html=True)
 
-st.info(
-    f"Signal: **{signal}** — Force: **{strength}** | "
-    f"Source prix: **{MARKET_SOURCE} / {BINANCE_SYMBOL}** | "
-    f"{data_status} | "
-    f"Dernière bougie: **{last_time.strftime('%d/%m/%Y %H:%M:%S')}** "
-    f"| Heure locale: **{now_tunis.strftime('%H:%M:%S')}**"
+st.markdown(
+    f'<div class="info-strip">📡 <b>{MARKET_SOURCE}</b> · {BINANCE_SYMBOL} · '
+    f'Dernière bougie clôturée : <b>{last_time.strftime("%d/%m/%Y %H:%M")}</b> · '
+    f'Heure locale : <b>{now_tunis.strftime("%H:%M:%S")}</b> · '
+    f'Écart live / clôture modèle : <b>{live_gap:+.3%}</b></div>',
+    unsafe_allow_html=True
 )
-
-st.caption(
-    "Source de référence: Binance public market data. "
-    "V2.6.1 utilise data-api.binance.vision en priorité, puis plusieurs "
-    "endpoints officiels Binance de secours. "
-)
-
-st.caption(
-    f"Prix live Binance: **${live_price:,.2f}** · "
-    f"Clôture 5 min utilisée par le modèle: **${model_reference_price:,.2f}** · "
-    f"Écart live/clôture: **{live_gap:+.3%}**"
-)
-
-# ============================================================
-# TABS
-# ============================================================
 
 tab1, tab2, tab3 = st.tabs([
-    "📈 Marché & prédiction",
-    "🧪 Walk-Forward Backtest",
-    "🤖 Évaluation ML",
+    "📈  OVERVIEW",
+    "🧪  WALK-FORWARD",
+    "🤖  ML ANALYTICS",
 ])
 
-# ============================================================
-# TAB 1
-# ============================================================
-
 with tab1:
-    st.subheader("Prix BTC + prévision ML")
-
-    fig = current_chart(
-        df, preds, future_times, supports, resistances
+    st.markdown('<div class="section-title">📈 Marché & prévision</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="section-caption">80 dernières bougies · SMA 20 · RSI · supports/résistances · projection ML</div>',
+        unsafe_allow_html=True
     )
-    st.plotly_chart(fig, use_container_width=True)
 
-    st.subheader("12 horizons de prédiction")
-
-    pred_table = pd.DataFrame({
-        "Horizon": [f"{5 * (i + 1)} min" for i in range(HORIZONS)],
-        "Heure": [
-            t.strftime("%H:%M:%S") for t in future_times
-        ],
-        "Prix prédit": [
-            round(float(p), 2) for p in preds
-        ],
-        "Variation vs actuel": [
-            f"{((p - last_price) / last_price):.2%}"
-            for p in preds
-        ],
+    fig = current_chart(df, preds, future_times, supports, resistances)
+    st.plotly_chart(fig, use_container_width=True, config={
+        "displaylogo": False,
+        "modeBarButtonsToRemove": ["lasso2d", "select2d"],
     })
 
-    st.dataframe(
-        pred_table,
-        use_container_width=True,
-        hide_index=True,
-    )
+    left, right = st.columns([1.7, 1])
 
-    col_a, col_b = st.columns(2)
+    with left:
+        st.markdown('<div class="section-title">🔮 Projection multi-horizon</div>', unsafe_allow_html=True)
+        pred_table = pd.DataFrame({
+            "Horizon": [f"{5 * (i + 1)} min" for i in range(HORIZONS)],
+            "Heure": [t.strftime("%H:%M:%S") for t in future_times],
+            "Prix prédit": [round(float(p), 2) for p in preds],
+            "Variation": [
+                f"{((p - model_reference_price) / model_reference_price):+.2%}"
+                for p in preds
+            ],
+        })
+        st.dataframe(
+            pred_table,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Prix prédit": st.column_config.NumberColumn(format="$%.2f"),
+                "Variation": st.column_config.TextColumn(),
+            },
+        )
 
-    with col_a:
-        st.subheader("Supports")
+    with right:
+        st.markdown('<div class="section-title">🎯 Zones techniques</div>', unsafe_allow_html=True)
         if supports:
-            st.write([f"${x:,.2f}" for x in supports])
+            st.markdown("**Support**")
+            for x in reversed(supports[-3:]):
+                st.markdown(f"`$ {x:,.2f}`")
         else:
-            st.write("Aucun support détecté.")
-
-    with col_b:
-        st.subheader("Résistances")
+            st.caption("Aucun support détecté.")
+        st.markdown("**Résistance**")
         if resistances:
-            st.write([f"${x:,.2f}" for x in resistances])
+            for x in reversed(resistances[-3:]):
+                st.markdown(f"`$ {x:,.2f}`")
         else:
-            st.write("Aucune résistance détectée.")
-
-# ============================================================
-# TAB 2 - WALK FORWARD
-# ============================================================
-
-with tab2:
-    st.subheader("Walk-Forward Backtest")
-
-    st.warning(
-        "V2.6 utilise Binance Spot BTC/USDT comme source de référence "
-        "unique pour les bougies 5 minutes et le prix live. "
-        "Le modèle reçoit uniquement une bougie 5 minutes clôturée. "
-        "Le backtest reste une simulation historique et ne garantit "
-        "aucune performance future."
-    )
+            st.caption("Aucune résistance détectée.")
 
     st.markdown(
-        "**Pourquoi Binance ?** Il n'existe pas un prix BTC mondial unique. "
-        "Un prix affiché par Google, Yahoo ou une plateforme peut différer "
-        "légèrement d'un exchange à l'autre. V2.6 choisit donc une source "
-        "de marché précise et reproductible au lieu de mélanger plusieurs sources."
+        '<div class="info-strip">ℹ️ Le modèle utilise uniquement la dernière bougie 5 minutes <b>clôturée</b>. '
+        'Le prix live est affiché séparément pour éviter de mélanger une bougie en formation avec les features ML.</div>',
+        unsafe_allow_html=True
     )
 
-    b1, b2, b3, b4 = st.columns(4)
-
-    train_size = b1.number_input(
-        "Taille entraînement",
-        min_value=500,
-        max_value=1500,
-        value=900,
-        step=100,
+with tab2:
+    st.markdown('<div class="section-title">🧪 Walk-Forward Backtest</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="section-caption">Évaluation chronologique avec réentraînement périodique du modèle.</div>',
+        unsafe_allow_html=True
     )
 
-    test_size = b2.number_input(
-        "Taille test",
-        min_value=200,
-        max_value=1000,
-        value=600,
-        step=100,
+    with st.expander("⚙️ Paramètres du test", expanded=True):
+        b1, b2, b3, b4 = st.columns(4)
+        train_size = b1.number_input("Taille entraînement", min_value=500, max_value=1500, value=900, step=100)
+        test_size = b2.number_input("Taille test", min_value=200, max_value=1000, value=600, step=100)
+        retrain_every = b3.number_input("Réentraînement / N bars", min_value=5, max_value=60, value=12, step=1)
+        threshold = b4.number_input("Seuil signal", min_value=0.001, max_value=0.02, value=DEFAULT_THRESHOLD, step=0.001, format="%.3f")
+        fee = st.number_input("Frais simulés / changement de position", min_value=0.0, max_value=0.01, value=DEFAULT_FEE, step=0.0001, format="%.4f")
+
+    st.markdown(
+        '<div class="info-strip">⚠️ Simulation historique uniquement. '
+        'Les résultats passés ne garantissent pas les performances futures.</div>',
+        unsafe_allow_html=True
     )
 
-    retrain_every = b3.number_input(
-        "Réentraînement tous les N bars",
-        min_value=5,
-        max_value=60,
-        value=12,
-        step=1,
-    )
-
-    threshold = b4.number_input(
-        "Seuil signal",
-        min_value=0.001,
-        max_value=0.02,
-        value=DEFAULT_THRESHOLD,
-        step=0.001,
-        format="%.3f",
-    )
-
-    fee = st.number_input(
-        "Frais simulés par changement de position",
-        min_value=0.0,
-        max_value=0.01,
-        value=DEFAULT_FEE,
-        step=0.0001,
-        format="%.4f",
-    )
-
-    run = st.button(
-        "▶ Lancer le Walk-Forward Backtest",
-        type="primary",
-        use_container_width=True,
-    )
+    run = st.button("▶  Lancer le Walk-Forward", type="primary", use_container_width=True)
 
     if run:
-        with st.spinner(
-            "Walk-forward en cours — plusieurs entraînements ML peuvent prendre du temps..."
-        ):
+        with st.spinner("Analyse en cours — entraînements ML successifs..."):
             feature_values = df[FEATURES].values.astype(float)
             close_values = df["Close"].values.astype(float)
             index_values = df.index.astype(str).tolist()
-
-            data_hash = (
-                len(df),
-                str(df.index[0]),
-                str(df.index[-1]),
-                float(df["Close"].iloc[-1]),
-            )
-
+            data_hash = (len(df), str(df.index[0]), str(df.index[-1]), float(df["Close"].iloc[-1]))
             result = run_walk_forward(
-                data_hash,
-                close_values.tolist(),
-                feature_values.tolist(),
-                index_values,
-                int(train_size),
-                int(test_size),
-                int(retrain_every),
-                float(threshold),
-                float(fee),
+                data_hash, close_values.tolist(), feature_values.tolist(), index_values,
+                int(train_size), int(test_size), int(retrain_every),
+                float(threshold), float(fee)
             )
-
         if result is None:
-            st.error(
-                "Pas assez de données pour ces paramètres. "
-                "Réduis la taille d'entraînement ou du test."
-            )
+            st.error("Pas assez de données pour ces paramètres.")
         else:
             st.session_state["wf_result"] = result
 
     result = st.session_state.get("wf_result")
-
     if result is not None:
         initial_capital = 10000.0
         final_capital = initial_capital * result["final_multiple"]
         bh_final = initial_capital * result["bh_multiple"]
 
         r1, r2, r3, r4, r5, r6 = st.columns(6)
+        r1.metric("Capital final", f"${final_capital:,.2f}")
+        r2.metric("Rendement", f"{result['final_multiple'] - 1:+.2%}")
+        r3.metric("Buy & Hold", f"{result['bh_multiple'] - 1:+.2%}")
+        r4.metric("Trades", f"{result['trades']}")
+        r5.metric("Win rate", f"{result['win_rate']:.2%}")
+        r6.metric("Max DD", f"{result['max_drawdown']:.2%}")
 
-        r1.metric(
-            "Capital final",
-            f"${final_capital:,.2f}",
-        )
-        r2.metric(
-            "Rendement stratégie",
-            f"{(result['final_multiple'] - 1):.2%}",
-        )
-        r3.metric(
-            "Buy & Hold",
-            f"{(result['bh_multiple'] - 1):.2%}",
-        )
-        r4.metric(
-            "Trades",
-            f"{result['trades']}",
-        )
-        r5.metric(
-            "Win rate",
-            f"{result['win_rate']:.2%}",
-        )
-        r6.metric(
-            "Max Drawdown",
-            f"{result['max_drawdown']:.2%}",
-        )
+        st.plotly_chart(backtest_chart(result), use_container_width=True)
+        st.plotly_chart(drawdown_chart(result), use_container_width=True)
 
-        st.metric("Sharpe simulé", f"{result['sharpe']:.3f}")
-
-        st.plotly_chart(
-            backtest_chart(result),
-            use_container_width=True,
-        )
-
-        st.plotly_chart(
-            drawdown_chart(result),
-            use_container_width=True,
-        )
-
-        st.subheader("Comparaison stratégie / Buy & Hold")
-
+        st.markdown('<div class="section-title">Comparaison</div>', unsafe_allow_html=True)
         comp = pd.DataFrame({
-            "Indicateur": [
-                "Capital final",
-                "Rendement",
-                "Nombre de trades",
-                "Win rate",
-                "Sharpe",
-                "Max drawdown",
-            ],
+            "Indicateur": ["Capital final", "Rendement", "Nombre de trades", "Win rate", "Sharpe", "Max drawdown"],
             "Walk-Forward": [
-                f"${final_capital:,.2f}",
-                f"{result['final_multiple'] - 1:.2%}",
-                result["trades"],
-                f"{result['win_rate']:.2%}",
-                f"{result['sharpe']:.3f}",
-                f"{result['max_drawdown']:.2%}",
+                f"${final_capital:,.2f}", f"{result['final_multiple'] - 1:+.2%}",
+                result["trades"], f"{result['win_rate']:.2%}",
+                f"{result['sharpe']:.3f}", f"{result['max_drawdown']:.2%}"
             ],
             "Buy & Hold": [
-                f"${bh_final:,.2f}",
-                f"{result['bh_multiple'] - 1:.2%}",
-                "—",
-                "—",
-                "—",
-                "—",
+                f"${bh_final:,.2f}", f"{result['bh_multiple'] - 1:+.2%}", "—", "—", "—", "—"
             ],
         })
-
-        st.dataframe(
-            comp,
-            use_container_width=True,
-            hide_index=True,
-        )
-
-# ============================================================
-# TAB 3 - ML EVALUATION
-# ============================================================
+        st.dataframe(comp, use_container_width=True, hide_index=True)
 
 with tab3:
-    st.subheader("Évaluation chronologique du modèle")
-
-    st.write(
-        "Cette section mesure les erreurs sur une période de test "
-        "chronologique et utilise le même principe de targets "
-        "Close(t+1) ... Close(t+12)."
+    st.markdown('<div class="section-title">🤖 ML Analytics</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="section-caption">Mesure chronologique des erreurs et de la capacité directionnelle à +1h.</div>',
+        unsafe_allow_html=True
     )
 
     if "wf_result" not in st.session_state:
-        st.info(
-            "Lance d'abord le Walk-Forward Backtest pour obtenir "
-            "les métriques d'évaluation."
-        )
+        st.info("Lance le Walk-Forward pour calculer les métriques ML.")
     else:
         result = st.session_state["wf_result"]
-
         e1, e2, e3 = st.columns(3)
+        e1.metric("MAE +1h", f"${result['mae']:,.2f}")
+        e2.metric("RMSE +1h", f"${result['rmse']:,.2f}")
+        e3.metric("Direction accuracy", f"{result['direction_acc']:.2%}")
 
-        e1.metric(
-            "MAE 1h",
-            f"${result['mae']:,.2f}",
-        )
-        e2.metric(
-            "RMSE 1h",
-            f"${result['rmse']:,.2f}",
-        )
-        e3.metric(
-            "Direction accuracy 1h",
-            f"{result['direction_acc']:.2%}",
-        )
-
-        st.subheader("Performance par horizon")
-
+        st.markdown('<div class="section-title">Performance par horizon</div>', unsafe_allow_html=True)
         hm = result["horizon_metrics"].copy()
         hm["MAE"] = hm["MAE"].round(2)
         hm["RMSE"] = hm["RMSE"].round(2)
-        hm["Direction accuracy"] = (
-            hm["Direction accuracy"] * 100
-        ).round(2).astype(str) + "%"
+        hm["Direction accuracy"] = (hm["Direction accuracy"] * 100).round(2).astype(str) + "%"
+        st.dataframe(hm, use_container_width=True, hide_index=True)
 
-        st.dataframe(
-            hm,
-            use_container_width=True,
-            hide_index=True,
-        )
-
-        st.subheader("Prédiction 1h vs réalité")
-
+        st.markdown('<div class="section-title">Prix prédit vs prix réel à +1h</div>', unsafe_allow_html=True)
         fig_eval = go.Figure()
-
-        fig_eval.add_trace(
-            go.Scatter(
-                x=result["index"],
-                y=result["actual"],
-                mode="lines",
-                name="Prix réel à +1h",
-            )
-        )
-
-        fig_eval.add_trace(
-            go.Scatter(
-                x=result["index"],
-                y=result["pred"],
-                mode="lines",
-                name="Prix prédit à +1h",
-            )
-        )
-
+        fig_eval.add_trace(go.Scatter(
+            x=result["index"], y=result["actual"], mode="lines", name="Réel +1h",
+            line=dict(width=2)
+        ))
+        fig_eval.add_trace(go.Scatter(
+            x=result["index"], y=result["pred"], mode="lines", name="Prédit +1h",
+            line=dict(width=2, dash="dot")
+        ))
         fig_eval.update_layout(
-            height=500,
-            template="plotly_dark",
-            xaxis_title="Temps",
-            yaxis_title="Prix BTC",
+            height=470, template="plotly_dark",
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(13,17,23,0.55)",
+            xaxis_title="Temps", yaxis_title="Prix BTC",
+            margin=dict(l=10, r=10, t=30, b=10),
+            hovermode="x unified",
+            legend=dict(orientation="h", y=1.02, x=0),
         )
+        fig_eval.update_xaxes(showgrid=True, gridcolor="rgba(148,163,184,.08)", zeroline=False)
+        fig_eval.update_yaxes(showgrid=True, gridcolor="rgba(148,163,184,.08)", zeroline=False)
+        st.plotly_chart(fig_eval, use_container_width=True)
 
-        st.plotly_chart(
-            fig_eval,
-            use_container_width=True,
-        )
-
-# ============================================================
-# MODEL INFORMATION
-# ============================================================
-
-with st.expander("ℹ️ Informations sur le modèle"):
-    st.write(
-        f"**Type :** `{type(model).__name__}`"
-    )
-    st.write(
-        f"**Nombre de features :** `{getattr(model, 'n_features_in_', 'N/A')}`"
-    )
-    st.write(
-        f"**Nombre de sorties :** `{len(getattr(model, 'estimators_', []))}`"
-    )
-
+# Technical details moved to a compact footer
+with st.expander("ℹ️ Détails techniques du modèle"):
+    a, b, c = st.columns(3)
+    a.write(f"**Type :** `{type(model).__name__}`")
+    a.write(f"**Features :** `{getattr(model, 'n_features_in_', 'N/A')}`")
+    b.write(f"**Sorties :** `{len(getattr(model, 'estimators_', []))}`")
+    c.write(f"**Source :** `{MARKET_SOURCE} — {BINANCE_SYMBOL}`")
     if hasattr(model, "estimator"):
-        st.write(
-            f"**Random Forest :** "
-            f"{model.estimator.n_estimators} arbres, "
-            f"max_depth={model.estimator.max_depth}, "
-            f"random_state={model.estimator.random_state}"
+        c.write(
+            f"**Random Forest :** {model.estimator.n_estimators} arbres · "
+            f"depth={model.estimator.max_depth}"
         )
+    st.write("**Features utilisées :**", FEATURES)
 
-    st.write(
-        "**Features utilisées :**",
-        FEATURES,
-    )
-    st.write(
-        f"**Source marché V2.6 :** {MARKET_SOURCE} — {BINANCE_SYMBOL}"
-    )
-    st.write(
-        "**Bougies :** Spot 5 minutes ; prix live séparé du dernier close."
-    )
-
-st.caption(
-    "V2.6.1 — données Yahoo Finance / modèle ML existant / "
-    "backtest uniquement simulé."
+st.markdown(
+    '<div class="footer">BTC Intelligence V3 · Market data Binance · '
+    'Dashboard éducatif et simulation historique · Aucun ordre réel exécuté.</div>',
+    unsafe_allow_html=True
 )
